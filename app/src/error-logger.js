@@ -2,13 +2,21 @@ var ErrorLogger, _, app;
 
 let ipcRenderer = null;
 if (process.type === 'renderer') {
-  ipcRenderer = require('electron').ipcRenderer;
-  app = require('@electron/remote').app;
+  try {
+    ipcRenderer = require('electron').ipcRenderer;
+    app = require('@electron/remote').app;
+  } catch (err) {
+    console.warn('Failed to load renderer Electron modules:', err);
+  }
 } else {
-  app = require('electron').app;
+  try {
+    app = require('electron').app;
+  } catch (err) {
+    console.warn('Failed to load electron.app:', err);
+  }
 }
 
-var appVersion = app.getVersion();
+var appVersion = app && typeof app.getVersion === 'function' ? app.getVersion() : 'unknown';
 var SentryErrorReporter = require('./error-logger-extensions/sentry-error-reporter');
 
 // A globally available ErrorLogger that can report errors to various
@@ -144,17 +152,24 @@ module.exports = ErrorLogger = (function () {
     if (process.type === 'renderer') {
       return;
     }
-    require('electron').crashReporter.start({
-      productName: 'Mailspring',
-      companyName: 'Mailspring',
-      submitURL: `https://id.getmailspring.com/report-crash?ver=${appVersion}&platform=${process.platform}`,
-      uploadToServer: true,
+    try {
+      const crashReporter = require('electron').crashReporter;
+      if (crashReporter && typeof crashReporter.start === 'function') {
+        crashReporter.start({
+          productName: 'Mailspring',
+          companyName: 'Mailspring',
+          submitURL: `https://id.getmailspring.com/report-crash?ver=${appVersion}&platform=${process.platform}`,
+          uploadToServer: true,
       autoSubmit: true,
-      extra: {
-        ver: appVersion,
-        platform: process.platform,
-      },
-    });
+          extra: {
+            ver: appVersion,
+            platform: process.platform,
+          },
+        });
+      }
+    } catch (err) {
+      console.warn('Failed to start crash reporter:', err);
+    }
   };
 
   ErrorLogger.prototype._extendNativeConsole = function (args) {

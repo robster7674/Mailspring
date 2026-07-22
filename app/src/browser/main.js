@@ -28,8 +28,21 @@ console.inspect = function consoleInspect(val) {
   console.log(util.inspect(val, true, 7, true));
 };
 
-const { app, session, protocol } = require('electron');
+const electronModule = require('electron');
+const { app, session, protocol } = electronModule;
 const path = require('path');
+const os = require('os');
+
+// Debug: log what we got from require('electron')
+if (!app || !session || !protocol) {
+  console.error('DEBUG: require("electron") returned:', {
+    type: typeof electronModule,
+    constructor: electronModule?.constructor?.name,
+    isString: typeof electronModule === 'string',
+    toString: String(electronModule).substring(0, 200),
+    keys: Object.keys(electronModule || {}),
+  });
+}
 
 if (typeof process.setFdLimit === 'function') {
   process.setFdLimit(1024);
@@ -45,7 +58,7 @@ const setupConfigDir = args => {
   }
 
   // Check if a custom config dir was provided via --config-dir-path
-  let configDirPath = args.configDirPath || path.join(app.getPath('appData'), dirname);
+  let configDirPath = args.configDirPath || (app && typeof app.getPath === 'function' ? path.join(app.getPath('appData'), dirname) : path.join(os.homedir(), '.config', dirname));
 
   if (process.platform === 'linux' && process.env.SNAP) {
     // for linux snap, use the sandbox directory that is persisted between snap revisions
@@ -56,7 +69,9 @@ const setupConfigDir = args => {
   fs.mkdirSync(configDirPath, { recursive: true });
 
   // tell Electron to use this folder for local storage, etc. as well
-  app.setPath('userData', configDirPath);
+  if (app && typeof app.setPath === 'function') {
+    app.setPath('userData', configDirPath);
+  }
 
   return configDirPath;
 };
@@ -323,7 +338,13 @@ const start = () => {
     }
   }
 
-  require('@electron/remote/main').initialize();
+  if (app) {
+    try {
+      require('@electron/remote/main').initialize();
+    } catch (err) {
+      console.warn('Failed to initialize @electron/remote:', err);
+    }
+  }
 
   // Configure Chromium command line switches before app ready event.
   // These must be set before the ready event for them to take effect.
