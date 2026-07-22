@@ -267,33 +267,39 @@ const handleStartupEventWithSquirrel = () => {
 };
 
 const start = () => {
-  if (process.platform === 'win32') {
+  if (process.platform === 'win32' && app) {
     // Must be set before setAppUserModelId so RegisterActivator writes it
     // into the Start Menu shortcut. Without this, action/reply notification
     // events are silently dropped (COM server is never registered).
-    app.setToastActivatorCLSID('{E6AD16B0-2830-48E7-9DB7-439152FA917B}');
-    app.setAppUserModelId('com.squirrel.mailspring.mailspring');
+    if (typeof app.setToastActivatorCLSID === 'function') {
+      app.setToastActivatorCLSID('{E6AD16B0-2830-48E7-9DB7-439152FA917B}');
+    }
+    if (typeof app.setAppUserModelId === 'function') {
+      app.setAppUserModelId('com.squirrel.mailspring.mailspring');
+    }
   }
 
   // Set the app name explicitly for Linux to ensure the system tray icon
   // gets a unique ID. Without this, all Electron apps share the same
   // StatusNotifierItem ID on Linux, causing their tray visibility settings
   // to be synchronized. See: https://github.com/electron/electron/issues/40936
-  if (process.platform === 'linux') {
+  if (process.platform === 'linux' && app && typeof app.setName === 'function') {
     app.setName('Mailspring');
   }
 
 
-  protocol.registerSchemesAsPrivileged([
-    {
-      scheme: 'mailspring',
-      privileges: {
-        secure: true,
-        supportFetchAPI: true,
-        corsEnabled: true,
+  if (protocol && typeof protocol.registerSchemesAsPrivileged === 'function') {
+    protocol.registerSchemesAsPrivileged([
+      {
+        scheme: 'mailspring',
+        privileges: {
+          secure: true,
+          supportFetchAPI: true,
+          corsEnabled: true,
+        }
       }
-    }
-  ])
+    ]);
+  }
 
   if (handleStartupEventWithSquirrel()) {
     return;
@@ -322,8 +328,10 @@ const start = () => {
   // Configure Chromium command line switches before app ready event.
   // These must be set before the ready event for them to take effect.
   // Reference: https://www.electronjs.org/docs/latest/api/command-line-switches
-  app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
-  app.commandLine.appendSwitch('js-flags', '--harmony');
+  if (app && typeof app.commandLine?.appendSwitch === 'function') {
+    app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+    app.commandLine.appendSwitch('js-flags', '--harmony');
+  }
 
   const options = parseCommandLine(process.argv);
   global.errorLogger = setupErrorLogger(options);
@@ -332,26 +340,30 @@ const start = () => {
 
   // On macOS, setLoginItemSettings doesn't support passing custom args, so we
   // detect login-item launches via wasOpenedAtLogin and start in background.
-  if (process.platform === 'darwin' && !options.background) {
+  if (app && process.platform === 'darwin' && !options.background && typeof app.getLoginItemSettings === 'function') {
     const settings = app.getLoginItemSettings();
     if (settings.wasOpenedAtLogin) {
       options.background = true;
     }
   }
 
-  if (!options.devMode) {
-    const gotTheLock = app.requestSingleInstanceLock();
+  if (app && !options.devMode) {
+    if (typeof app.requestSingleInstanceLock === 'function') {
+      const gotTheLock = app.requestSingleInstanceLock();
 
-    if (!gotTheLock) {
-      console.log('Exiting because another instance of the app is already running.');
-      app.exit(1);
-      return;
+      if (!gotTheLock) {
+        console.log('Exiting because another instance of the app is already running.');
+        if (typeof app.exit === 'function') {
+          app.exit(1);
+        }
+        return;
+      }
+
+      app.on('second-instance', (event, commandLine, workingDirectory) => {
+        const otherOpts = parseCommandLine(commandLine);
+        global.application.handleLaunchOptions(otherOpts);
+      });
     }
-
-    app.on('second-instance', (event, commandLine, workingDirectory) => {
-      const otherOpts = parseCommandLine(commandLine);
-      global.application.handleLaunchOptions(otherOpts);
-    });
   }
 
   setupCompileCache(configDirPath, options.devMode);
@@ -366,9 +378,12 @@ const start = () => {
     options.urlsToOpen.push(url);
   };
 
-  app.on('open-url', onOpenUrlBeforeReady);
-  app.on('open-file', onOpenFileBeforeReady);
-  app.on('ready', () => {
+  if (app) {
+    app.on('open-url', onOpenUrlBeforeReady);
+    app.on('open-file', onOpenFileBeforeReady);
+  }
+  if (app) {
+    app.on('ready', () => {
     app.removeListener('open-file', onOpenFileBeforeReady);
     app.removeListener('open-url', onOpenUrlBeforeReady);
 
@@ -420,7 +435,8 @@ const start = () => {
     if (!options.specMode) {
       console.log(`App load time: ${Date.now() - global.shellStartTime}ms`);
     }
-  });
+    });
+  }
 };
 
 start();
