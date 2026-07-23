@@ -260,10 +260,7 @@ export default class Application extends EventEmitter {
     }
 
     try {
-      return await advancedProfiler.trackAsyncOperation(
-        `database.${operationName}`,
-        fn()
-      );
+      return await advancedProfiler.trackAsyncOperation(`database.${operationName}`, fn());
     } finally {
       if (this._databaseAccessLock) {
         this._databaseAccessLock.unlock();

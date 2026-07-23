@@ -23,6 +23,7 @@ const MAX_RETRY_LOCK_DELAY = 500;
 type AgentResponse = { results: any[]; agentTime: number };
 type SQLString = string;
 type SQLValue = boolean | string | number;
+type QueryCacheEntry = { results: any[]; expiresAt: number };
 
 function trimTo(str: string, size?: number) {
   const g = window || global || {};
@@ -32,6 +33,10 @@ function trimTo(str: string, size?: number) {
     trimed = `${str.slice(0, TRIM_SIZE / 2)}…${str.slice(str.length - TRIM_SIZE / 2, str.length)}`;
   }
   return trimed;
+}
+
+function generateQueryCacheKey(query: SQLString, values: SQLValue[]): string {
+  return `${query}|${JSON.stringify(values)}`;
 }
 
 function handleUnrecoverableDatabaseError(
@@ -132,6 +137,7 @@ class DatabaseStore extends MailspringStore {
   _open = false;
   _waiting = [];
   _preparedStatementCache = new LRUCache<string, Sqlite3.Statement<any[]>>({ max: 500 });
+  _queryResultCache = new Map<string, QueryCacheEntry>();
   _databasePath = databasePath(AppEnv.getConfigDirPath(), AppEnv.inSpecMode());
   _db?: Sqlite3.Database;
 
@@ -233,6 +239,18 @@ class DatabaseStore extends MailspringStore {
         }
       });
 
+      if (query.startsWith('SELECT')) {
+        const cacheKey = generateQueryCacheKey(query, values);
+        const cached = this._queryResultCache.get(cacheKey);
+        if (cached && cached.expiresAt > Date.now()) {
+          if (debugVerbose.enabled) {
+            debugVerbose(`📦 Query cache hit: ${trimTo(query)}`);
+          }
+          resolve(cached.results);
+          return;
+        }
+      }
+
       const start = Date.now();
 
       if (!background) {
@@ -243,6 +261,7 @@ class DatabaseStore extends MailspringStore {
             `DatabaseStore._executeLocally took more than 100ms - ${msec}msec: ${query}`
           );
         }
+        this._cacheQueryResults(query, values, results);
         resolve(results);
       } else {
         const { results, agentTime } = await this._executeInBackground(query, values);
@@ -258,6 +277,7 @@ class DatabaseStore extends MailspringStore {
             `${msgPrefix}${msec}msec (${agentTime}msec in background): ${query}`
           );
         }
+        this._cacheQueryResults(query, values, results);
         resolve(results);
       }
     });
@@ -399,6 +419,27 @@ class DatabaseStore extends MailspringStore {
       this._agentOpenQueries[id] = resolve;
       this._agent.send({ query, values, id, dbpath: this._databasePath });
     });
+  }
+
+  _cacheQueryResults(query: SQLString, values: SQLValue[], results: any[]) {
+    if (!query.startsWith('SELECT')) {
+      return;
+    }
+    const cacheKey = generateQueryCacheKey(query, values);
+    const ttl = 5000;
+    this._queryResultCache.set(cacheKey, {
+      results,
+      expiresAt: Date.now() + ttl,
+    });
+  }
+
+  _invalidateQueryCache() {
+    this._queryResultCache.clear();
+  }
+
+  trigger(...args: any[]) {
+    this._invalidateQueryCache();
+    return super.trigger(...args);
   }
 
   // PUBLIC METHODS #############################
