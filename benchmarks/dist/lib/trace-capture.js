@@ -7,6 +7,40 @@ exports.startTracing = startTracing;
 exports.stopTracing = stopTracing;
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
+function isRawCDPSession(session) {
+    return session && session.ws && typeof session.messageId === 'number';
+}
+async function sendCDPCommand(session, method, params = {}) {
+    return new Promise((resolve, reject) => {
+        const id = session.messageId++;
+        const message = JSON.stringify({ id, method, params });
+        const timeout = setTimeout(() => {
+            messageHandler = null;
+            reject(new Error(`CDP timeout waiting for ${method}`));
+        }, 5000);
+        let messageHandler = (data) => {
+            try {
+                const response = JSON.parse(data.toString());
+                if (response.id === id) {
+                    clearTimeout(timeout);
+                    session.ws.removeListener('message', messageHandler);
+                    messageHandler = null;
+                    if (response.error) {
+                        reject(new Error(`CDP error in ${method}: ${response.error.message}`));
+                    }
+                    else {
+                        resolve(response.result);
+                    }
+                }
+            }
+            catch (e) {
+                // Ignore parse errors, wait for the actual response
+            }
+        };
+        session.ws.on('message', messageHandler);
+        session.ws.send(message);
+    });
+}
 async function startTracing(electronApp, window, options) {
     const categories = options.categories || [
         'devtools.timeline',
@@ -14,14 +48,35 @@ async function startTracing(electronApp, window, options) {
         'disabled-by-default-devtools.timeline',
         'disabled-by-default-v8.runtime',
     ];
-    const cdpSession = await window.context().newCDPSession(window);
+    let cdpSession;
+    // Handle both Playwright and raw CDP sessions
+    if (isRawCDPSession(electronApp?.cdpConnection)) {
+        cdpSession = electronApp.cdpConnection;
+    }
+    else if (window && typeof window.context === 'function') {
+        // Playwright API
+        cdpSession = await window.context().newCDPSession(window);
+    }
+    else {
+        throw new Error('Unable to establish CDP session');
+    }
     try {
-        await cdpSession.send('Tracing.start', {
-            categories: categories.join(','),
-            traceConfig: {
-                recordMode: 'recordAsMuchAsPossible',
-            },
-        });
+        if (isRawCDPSession(cdpSession)) {
+            await sendCDPCommand(cdpSession, 'Tracing.start', {
+                categories: categories.join(','),
+                traceConfig: {
+                    recordMode: 'recordAsMuchAsPossible',
+                },
+            });
+        }
+        else {
+            await cdpSession.send('Tracing.start', {
+                categories: categories.join(','),
+                traceConfig: {
+                    recordMode: 'recordAsMuchAsPossible',
+                },
+            });
+        }
     }
     catch (err) {
         console.warn('Failed to start tracing:', err);
@@ -31,7 +86,13 @@ async function startTracing(electronApp, window, options) {
 }
 async function stopTracing(cdpSession, outputPath) {
     try {
-        const traceData = await cdpSession.send('Tracing.end', {});
+        let traceData;
+        if (isRawCDPSession(cdpSession)) {
+            traceData = await sendCDPCommand(cdpSession, 'Tracing.end', {});
+        }
+        else {
+            traceData = await cdpSession.send('Tracing.end', {});
+        }
         const traceBuffer = traceData.value || [];
         // Write the trace to file
         fs_1.default.mkdirSync(path_1.default.dirname(outputPath), { recursive: true });

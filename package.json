@@ -85,5 +85,9 @@
     "build": "node app/build/build.js",
     "benchmark:compile": "./node_modules/.bin/tsc -p benchmarks/tsconfig.json",
     "benchmark": "npm run benchmark:compile && node benchmarks/dist/scenarios/archive-message.js"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "ws": "^8.21.1"
   }
 }
