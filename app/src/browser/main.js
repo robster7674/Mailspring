@@ -1,6 +1,13 @@
 /* eslint dot-notation: 0 */
 /* eslint global-require: 0 */
 global.shellStartTime = Date.now();
+
+// Initialize startup profiler early to capture all timing
+const profilerModule = require('./startup-profiler');
+const profiler = profilerModule.initProfiler(process.env.PROFILE_STARTUP === '1');
+global.startupProfiler = profiler;
+profiler.mark('main.js-loaded');
+
 const util = require('util');
 
 const fs = require('fs');
@@ -394,6 +401,7 @@ const start = () => {
   }
   if (app) {
     app.on('ready', () => {
+    profiler.mark('app-ready-event-fired');
     app.removeListener('open-file', onOpenFileBeforeReady);
     app.removeListener('open-url', onOpenUrlBeforeReady);
 
@@ -437,13 +445,25 @@ const start = () => {
     });
 
     // eslint-disable-next-line
+    profiler.mark('application-module-load-start');
     const Application = require(path.join(options.resourcePath, 'src', 'browser', 'application'))
       .default;
+    profiler.mark('application-module-load-complete');
+
+    profiler.mark('application-instantiation-start');
     global.application = new Application();
+    profiler.mark('application-instantiation-complete');
+
+    profiler.mark('application-start-start');
     global.application.start(options);
+    profiler.mark('application-start-complete');
 
     if (!options.specMode) {
-      console.log(`App load time: ${Date.now() - global.shellStartTime}ms`);
+      const totalTime = Date.now() - global.shellStartTime;
+      console.log(`App load time: ${totalTime}ms`);
+      if (process.env.PROFILE_STARTUP === '1') {
+        profiler.summary();
+      }
     }
     });
   }

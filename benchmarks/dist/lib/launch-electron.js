@@ -13,8 +13,9 @@ const ws_1 = __importDefault(require("ws"));
 async function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
-async function getDebuggerUrl(port = 9222, timeoutMs = 30000) {
+async function getDebuggerUrl(port = 9222, timeoutMs = 60000) {
     const startTime = Date.now();
+    let lastError = null;
     while (Date.now() - startTime < timeoutMs) {
         try {
             const response = await new Promise((resolve, reject) => {
@@ -33,11 +34,12 @@ async function getDebuggerUrl(port = 9222, timeoutMs = 30000) {
             }
         }
         catch (err) {
+            lastError = err;
             // Not ready yet
         }
         await sleep(500);
     }
-    throw new Error(`Debugger endpoint not found after ${timeoutMs}ms`);
+    throw new Error(`Debugger endpoint not found after ${timeoutMs}ms. Last error: ${lastError?.message || 'unknown'}`);
 }
 async function connectCDP(debuggerUrl) {
     return new Promise((resolve, reject) => {

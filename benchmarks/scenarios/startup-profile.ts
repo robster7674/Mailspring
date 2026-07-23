@@ -55,7 +55,7 @@ export async function runStartupProfileScenario() {
     '--dev',
   ], {
     stdio: 'pipe',
-    env: { ...process.env, DISPLAY: ':16.0' },
+    env: { ...process.env, DISPLAY: ':16.0', PROFILE_STARTUP: '1' },
   });
 
   console.log(`✓ Process spawned at T+0ms`);
@@ -88,7 +88,7 @@ export async function runStartupProfileScenario() {
         proc.kill();
       }
       resolve();
-    }, 10000); // Wait up to 10 seconds
+    }, 15000); // Wait up to 15 seconds
 
     proc.on('exit', (code) => {
       processExited = true;

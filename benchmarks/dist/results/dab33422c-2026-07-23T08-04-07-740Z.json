@@ -1,0 +1,51 @@
+{
+  "timestamp": "2026-07-23T08:04:07.740Z",
+  "gitSha": "dab33422c",
+  "threadCount": 50,
+  "runs": 5,
+  "median": {
+    "layoutDuration": 0,
+    "paintDuration": 0,
+    "recalculateStyleDuration": 0,
+    "compositeDuration": 0,
+    "totalMainThreadTime": 0,
+    "frameCount": 0,
+    "duration": 709
+  },
+  "p95": {
+    "layoutDuration": 0,
+    "paintDuration": 0,
+    "recalculateStyleDuration": 0,
+    "compositeDuration": 0,
+    "totalMainThreadTime": 0,
+    "frameCount": 0,
+    "duration": 757
+  },
+  "min": {
+    "layoutDuration": 0,
+    "paintDuration": 0,
+    "recalculateStyleDuration": 0,
+    "compositeDuration": 0,
+    "totalMainThreadTime": 0,
+    "frameCount": 0,
+    "duration": 704
+  },
+  "max": {
+    "layoutDuration": 0,
+    "paintDuration": 0,
+    "recalculateStyleDuration": 0,
+    "compositeDuration": 0,
+    "totalMainThreadTime": 0,
+    "frameCount": 0,
+    "duration": 757
+  },
+  "mean": {
+    "layoutDuration": 0,
+    "paintDuration": 0,
+    "recalculateStyleDuration": 0,
+    "compositeDuration": 0,
+    "totalMainThreadTime": 0,
+    "frameCount": 0,
+    "duration": 723.6
+  }
+}

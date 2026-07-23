@@ -273,6 +273,8 @@ export class ComposerHeader extends React.Component<ComposerHeaderProps, Compose
           headerMessageId={this.props.draft.headerMessageId}
           enabledFields={this.state.enabledFields}
           onShowAndFocusField={this.showAndFocusField}
+          draft={this.props.draft}
+          session={this.props.session}
         />
         <KeyCommandsRegion
           tabIndex={-1}

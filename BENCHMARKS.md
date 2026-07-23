@@ -143,11 +143,12 @@ cat benchmarks/dist/results/CURRENT.json | jq .mean.duration
 - 5 runs with 50 threads
 
 **BorBook (macOS, 2026-07-23)**
-- OS: macOS (Apple Silicon)
-- Processor: M-series
-- Simple Startup: 5518ms (median) — **7.6x slower than Linux**
+- OS: macOS
+- Processor: Intel
+- Simple Startup: 5518ms (median) — **7.6x slower than Linux** ⚠️ PERFORMANCE ISSUE
 - Full benchmark suite completed successfully
 - All 10 scenarios ran successfully
+- **INVESTIGATION NEEDED**: Intel Mac startup dramatically slower than Linux
 
 ## Detailed Results: BorBook (macOS) Full Benchmark Run
 

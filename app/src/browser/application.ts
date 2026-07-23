@@ -61,9 +61,12 @@ export default class Application extends EventEmitter {
   _pendingUrls: string[] = [];
 
   async start(options) {
+    const profiler = global.startupProfiler || { mark: () => {} };
     const { resourcePath, configDirPath, version, devMode, specMode, safeMode } = options;
 
+    profiler.mark('application-start-initialization');
     initializeLocalization({ configDirPath });
+    profiler.mark('localization-initialized');
 
     // Normalize to make sure drive letter case is consistent on Windows
     this.resourcePath = resourcePath;
@@ -81,8 +84,12 @@ export default class Application extends EventEmitter {
     });
 
     try {
+      profiler.mark('mailsync-process-creation-start');
       const mailsync = new MailsyncProcess(options);
+      profiler.mark('mailsync-process-created');
+      profiler.mark('mailsync-migrate-start');
       await mailsync.migrate();
+      profiler.mark('mailsync-migrate-complete');
     } catch (err) {
       let message = null;
       let buttons = [localized('Quit')];
@@ -113,10 +120,13 @@ export default class Application extends EventEmitter {
       return;
     }
 
+    profiler.mark('config-loading-start');
     const Config = require('../config').default;
     const config = new Config();
     this.config = config;
+    profiler.mark('config-instantiated');
     this.configPersistenceManager = new ConfigPersistenceManager({ configDirPath, resourcePath });
+    profiler.mark('config-persistence-manager-created');
 
     // If the user's config.json could not be read (eg: corrupted / truncated on disk)
     // and they chose to quit from the error dialog, ConfigPersistenceManager has
@@ -127,21 +137,30 @@ export default class Application extends EventEmitter {
     if (this.configPersistenceManager.userWantsToPreserveErrors) {
       return;
     }
+    profiler.mark('config-load-start');
     config.load();
+    profiler.mark('config-loaded');
 
+    profiler.mark('config-migration-start');
     this.configMigrator = new ConfigMigrator(this.config);
     this.configMigrator.migrate();
+    profiler.mark('config-migrated');
 
     let initializeInBackground = options.background;
     if (initializeInBackground === undefined) {
       initializeInBackground = false;
     }
 
+    profiler.mark('one-time-setup-start');
     await this.oneTimeMoveToApplications();
     await this.oneTimeAddToDock();
+    profiler.mark('one-time-setup-complete');
 
+    profiler.mark('manager-initialization-start');
     this.autoUpdateManager = new AutoUpdateManager(version, config, specMode);
+    profiler.mark('auto-update-manager-created');
     this.applicationMenu = new ApplicationMenu(version);
+    profiler.mark('application-menu-created');
     this.windowManager = new WindowManager({
       resourcePath: this.resourcePath,
       configDirPath: this.configDirPath,
