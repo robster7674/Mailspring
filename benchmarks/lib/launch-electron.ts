@@ -19,8 +19,9 @@ async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function getDebuggerUrl(port: number = 9222, timeoutMs: number = 30000): Promise<string> {
+async function getDebuggerUrl(port: number = 9222, timeoutMs: number = 60000): Promise<string> {
   const startTime = Date.now();
+  let lastError: any = null;
 
   while (Date.now() - startTime < timeoutMs) {
     try {
@@ -40,13 +41,14 @@ async function getDebuggerUrl(port: number = 9222, timeoutMs: number = 30000): P
         return pages[0].webSocketDebuggerUrl;
       }
     } catch (err: any) {
+      lastError = err;
       // Not ready yet
     }
 
     await sleep(500);
   }
 
-  throw new Error(`Debugger endpoint not found after ${timeoutMs}ms`);
+  throw new Error(`Debugger endpoint not found after ${timeoutMs}ms. Last error: ${lastError?.message || 'unknown'}`);
 }
 
 async function connectCDP(debuggerUrl: string): Promise<CDPConnection> {

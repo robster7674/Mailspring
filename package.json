@@ -84,7 +84,7 @@
     "tsc-watch": "tsc -w -p ./app --noEmit",
     "build": "node app/build/build.js",
     "benchmark:compile": "./node_modules/.bin/tsc -p benchmarks/tsconfig.json",
-    "benchmark": "npm run benchmark:compile && node benchmarks/dist/scenarios/archive-message.js"
+    "benchmark": "npm run benchmark:compile && node benchmarks/dist/run-all-scenarios.js"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",
