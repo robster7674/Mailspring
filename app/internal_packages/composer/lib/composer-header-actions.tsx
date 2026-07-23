@@ -2,11 +2,14 @@ import React from 'react';
 import { localized, Actions } from 'mailspring-exports';
 import { RetinaImg, RovingTabIndexToolbar } from 'mailspring-component-kit';
 import Fields from './fields';
+import PlaintextToggleButton from './plaintext-toggle-button';
 
 interface ComposerHeaderActionsProps {
   headerMessageId: string;
   enabledFields: string[];
   onShowAndFocusField: (f: string) => void;
+  draft?: any;
+  session?: any;
 }
 export default class ComposerHeaderActions extends React.Component<ComposerHeaderActionsProps> {
   static displayName = 'ComposerHeaderActions';
@@ -82,6 +85,16 @@ export default class ComposerHeaderActions extends React.Component<ComposerHeade
         >
           {localized('Subject')}
         </span>
+      );
+    }
+
+    if (this.props.draft && this.props.session) {
+      items.push(
+        <PlaintextToggleButton
+          key="plaintext-toggle"
+          draft={this.props.draft}
+          session={this.props.session}
+        />
       );
     }
 
