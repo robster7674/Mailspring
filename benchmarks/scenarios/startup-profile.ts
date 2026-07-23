@@ -141,6 +141,17 @@ export async function runStartupProfileScenario() {
   const filename = path.join(resultsDir, `profile-${gitSha}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
   fs.writeFileSync(filename, JSON.stringify(profileResult, null, 2));
   console.log(`\n✓ Profiling results saved to: ${filename}`);
+
+  return {
+    timestamp: new Date().toISOString(),
+    gitSha,
+    runs: 1,
+    threadCount,
+    median: { duration: exitTime },
+    mean: { duration: exitTime },
+    min: { duration: exitTime },
+    max: { duration: exitTime },
+  };
 }
 
 if (require.main === module) {

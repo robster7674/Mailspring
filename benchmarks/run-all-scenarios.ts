@@ -1,3 +1,4 @@
+import { runStartupProfileScenario } from './scenarios/startup-profile';
 import { runSimpleStartupScenario } from './scenarios/simple-startup';
 import { runAppStartupScenario } from './scenarios/app-startup';
 import { runDatabaseQueryScenario } from './scenarios/database-query';
@@ -11,6 +12,7 @@ import { runAttachmentUploadScenario } from './scenarios/attachment-upload';
 
 async function runAllScenarios() {
   const scenarios = [
+    { name: 'Startup Profile', fn: () => runStartupProfileScenario() },
     { name: 'Simple Startup', fn: () => runSimpleStartupScenario({ runs: 5 }) },
     { name: 'App Startup (CDP)', fn: () => runAppStartupScenario({ runs: 3 }) },
     { name: 'Database Query', fn: () => runDatabaseQueryScenario({ runs: 3 }) },
