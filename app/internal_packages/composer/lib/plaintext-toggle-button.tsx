@@ -19,6 +19,7 @@ export default class PlaintextToggleButton extends React.Component<
   PlaintextToggleButtonState
 > {
   static displayName = 'PlaintextToggleButton';
+  _isConverting = false;
 
   constructor(props) {
     super(props);
@@ -29,33 +30,53 @@ export default class PlaintextToggleButton extends React.Component<
 
   _toggleMode = () => {
     const { draft, session } = this.props;
-    const { converting } = this.state;
 
-    if (converting) {
+    if (this._isConverting) {
       return;
     }
 
+    const isCurrentlyPlaintext = draft.plaintext;
+
+    if (!isCurrentlyPlaintext) {
+      // Warn user that formatting will be lost
+      const confirmed = AppEnv.showConfirmDialog({
+        title: localized('Switch to Plain Text?'),
+        message: localized(
+          'Switching to plain text will remove all formatting, links, and styles. This cannot be undone.'
+        ),
+        buttons: [localized('Switch to Plain Text'), localized('Keep Rich Text')],
+        defaultId: 1,
+      });
+      if (confirmed !== 0) {
+        return;
+      }
+    }
+
+    this._isConverting = true;
     this.setState({ converting: true });
 
     try {
-      const isCurrentlyPlaintext = draft.plaintext;
-
       if (isCurrentlyPlaintext) {
-        // Converting from plaintext to rich text
         const editorState = convertFromHTML(draft.body);
         session.changes.add({
           plaintext: false,
           bodyEditorState: editorState,
         });
       } else {
-        // Converting from rich text to plaintext
         const plaintextBody = convertToPlainText(draft.bodyEditorState);
         session.changes.add({
           plaintext: true,
           body: plaintextBody,
         });
       }
+    } catch (error) {
+      AppEnv.showErrorDialog(
+        localized('Failed to convert message'),
+        localized('An error occurred while switching text modes. Please try again.')
+      );
+      console.error('Plaintext toggle conversion error:', error);
     } finally {
+      this._isConverting = false;
       this.setState({ converting: false });
     }
   };
@@ -79,18 +100,15 @@ export default class PlaintextToggleButton extends React.Component<
 
     return (
       <span
-        className="action toggle-plaintext"
+        className={`action toggle-plaintext ${converting ? 'converting' : ''}`}
         role="button"
         tabIndex={-1}
         title={tooltip}
         aria-label={tooltip}
         onClick={this._toggleMode}
         onKeyDown={this._onKeyDown}
-        style={{ opacity: converting ? 0.5 : 1, cursor: 'pointer' }}
       >
-        <span style={{ marginRight: '4px', fontSize: '16px' }} aria-hidden="true">
-          {symbol}
-        </span>
+        <span aria-hidden="true">{symbol}</span>
         <span>{label}</span>
       </span>
     );

@@ -1,5 +1,10 @@
 import React from 'react';
-import { localized, Actions } from 'mailspring-exports';
+import {
+  localized,
+  Actions,
+  DraftEditingSession,
+  MessageWithEditorState,
+} from 'mailspring-exports';
 import { RetinaImg, RovingTabIndexToolbar } from 'mailspring-component-kit';
 import Fields from './fields';
 import PlaintextToggleButton from './plaintext-toggle-button';
@@ -8,8 +13,8 @@ interface ComposerHeaderActionsProps {
   headerMessageId: string;
   enabledFields: string[];
   onShowAndFocusField: (f: string) => void;
-  draft?: any;
-  session?: any;
+  draft?: MessageWithEditorState;
+  session?: DraftEditingSession;
 }
 export default class ComposerHeaderActions extends React.Component<ComposerHeaderActionsProps> {
   static displayName = 'ComposerHeaderActions';
