@@ -52,8 +52,12 @@ async function runAllScenarios() {
     console.log(`\n${' '.padEnd(30)} | Median  | Mean    | Min     | Max     | P95`);
     console.log('-'.repeat(70));
     for (const scenario of scenarios) {
+        // Skip Startup Profile - it's diagnostic, not a performance metric
+        if (scenario.name === 'Startup Profile') {
+            continue;
+        }
         const result = results[scenario.name];
-        if (result && result.median && result.median.duration !== undefined) {
+        if (result && result.median && typeof result.median.duration === 'number') {
             const median = result.median.duration;
             const mean = result.mean.duration || 0;
             const min = result.min.duration;

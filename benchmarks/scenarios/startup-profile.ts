@@ -60,9 +60,14 @@ export async function runStartupProfileScenario() {
 
   console.log(`✓ Process spawned at T+0ms`);
 
-  // Monitor stdout/stderr for activity
+  // Monitor stdout/stderr for activity and print profiling output
   if (proc.stdout) {
     proc.stdout.on('data', (data) => {
+      const output = data.toString();
+      // Print profiling marks in real-time
+      if (output.includes('[PROFILE]')) {
+        console.log(output);
+      }
       if (firstOutput === 0) {
         firstOutput = Date.now() - spawnTime;
         console.log(`✓ First output at T+${firstOutput}ms`);
@@ -72,6 +77,11 @@ export async function runStartupProfileScenario() {
 
   if (proc.stderr) {
     proc.stderr.on('data', (data) => {
+      const output = data.toString();
+      // Print profiling marks and errors
+      if (output.includes('[PROFILE]') || output.includes('Error') || output.includes('error')) {
+        console.log(output);
+      }
       if (firstOutput === 0) {
         firstOutput = Date.now() - spawnTime;
         console.log(`✓ First stderr output at T+${firstOutput}ms`);

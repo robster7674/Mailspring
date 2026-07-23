@@ -3,7 +3,7 @@
 global.shellStartTime = Date.now();
 
 // Initialize startup profiler early to capture all timing
-const profilerModule = require('./startup-profiler');
+const profilerModule = require('./startup-profiler.js');
 const profiler = profilerModule.initProfiler(process.env.PROFILE_STARTUP === '1');
 global.startupProfiler = profiler;
 profiler.mark('main.js-loaded');
