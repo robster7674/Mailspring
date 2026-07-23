@@ -3,6 +3,7 @@ import { spawn } from 'child_process';
 import { seedAccount } from '../fixtures/seed-account';
 import { execSync } from 'child_process';
 import fs from 'fs';
+import { saveResults } from '../lib/report';
 
 async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -121,6 +122,25 @@ export async function runStartupProfileScenario() {
     console.log('   - Electron startup on this platform');
     console.log('   - File system or system resource constraints');
   }
+
+  // Save profiling results
+  const resultsDir = path.join(__dirname, '../results');
+  const profileResult = {
+    timestamp: new Date().toISOString(),
+    gitSha,
+    threadCount,
+    seedTime,
+    firstOutput,
+    exitTime,
+    totalTime: seedTime + exitTime,
+    platform: process.platform,
+    arch: process.arch,
+  };
+
+  fs.mkdirSync(resultsDir, { recursive: true });
+  const filename = path.join(resultsDir, `profile-${gitSha}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+  fs.writeFileSync(filename, JSON.stringify(profileResult, null, 2));
+  console.log(`\n✓ Profiling results saved to: ${filename}`);
 }
 
 if (require.main === module) {
