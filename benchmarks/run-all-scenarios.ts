@@ -57,9 +57,9 @@ async function runAllScenarios() {
 
   for (const scenario of scenarios) {
     const result = results[scenario.name];
-    if (result) {
+    if (result && result.median && result.median.duration !== undefined) {
       const median = result.median.duration;
-      const mean = result.mean.duration;
+      const mean = result.mean.duration || 0;
       const min = result.min.duration;
       const max = result.max.duration;
       const p95 = result.p95.duration;
