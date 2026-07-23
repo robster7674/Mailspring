@@ -85,11 +85,18 @@ export default class Application extends EventEmitter {
 
     try {
       profiler.mark('mailsync-process-creation-start');
+      const t0 = Date.now();
       const mailsync = new MailsyncProcess(options);
-      profiler.mark('mailsync-process-created');
+      profiler.mark(`mailsync-process-created (${Date.now() - t0}ms)`);
+
       profiler.mark('mailsync-migrate-start');
+      const t1 = Date.now();
       await mailsync.migrate();
-      profiler.mark('mailsync-migrate-complete');
+      const migrationTime = Date.now() - t1;
+      profiler.mark(`mailsync-migrate-complete (${migrationTime}ms)`);
+      if (migrationTime > 1000) {
+        console.error(`[PERF WARNING] Mailsync migration took ${migrationTime}ms on ${process.platform}`);
+      }
     } catch (err) {
       let message = null;
       let buttons = [localized('Quit')];
@@ -121,12 +128,15 @@ export default class Application extends EventEmitter {
     }
 
     profiler.mark('config-loading-start');
+    const t2 = Date.now();
     const Config = require('../config').default;
     const config = new Config();
     this.config = config;
-    profiler.mark('config-instantiated');
+    profiler.mark(`config-instantiated (${Date.now() - t2}ms)`);
+
+    const t3 = Date.now();
     this.configPersistenceManager = new ConfigPersistenceManager({ configDirPath, resourcePath });
-    profiler.mark('config-persistence-manager-created');
+    profiler.mark(`config-persistence-manager-created (${Date.now() - t3}ms)`);
 
     // If the user's config.json could not be read (eg: corrupted / truncated on disk)
     // and they chose to quit from the error dialog, ConfigPersistenceManager has
@@ -138,13 +148,19 @@ export default class Application extends EventEmitter {
       return;
     }
     profiler.mark('config-load-start');
+    const t4 = Date.now();
     config.load();
-    profiler.mark('config-loaded');
+    const configLoadTime = Date.now() - t4;
+    profiler.mark(`config-loaded (${configLoadTime}ms)`);
+    if (configLoadTime > 500) {
+      console.error(`[PERF WARNING] Config load took ${configLoadTime}ms on ${process.platform}`);
+    }
 
     profiler.mark('config-migration-start');
+    const t5 = Date.now();
     this.configMigrator = new ConfigMigrator(this.config);
     this.configMigrator.migrate();
-    profiler.mark('config-migrated');
+    profiler.mark(`config-migrated (${Date.now() - t5}ms)`);
 
     let initializeInBackground = options.background;
     if (initializeInBackground === undefined) {
