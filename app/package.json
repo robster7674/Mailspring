@@ -17,7 +17,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@testing-library/react": "^12.1.5",
     "app-module-path": "^2.2.0",
-    "better-sqlite3": "^12.8.0",
+    "better-sqlite3": "^13.0.1",
     "cheerio": "^1.1.2",
     "chromium-net-errors": "1.0.3",
     "chrono-node": "^2.9.0",
@@ -75,7 +75,7 @@
     "xml2js": "^0.6.2"
   },
   "resolutions": {
-    "electron": "41.7.2",
+    "electron": "43.2.0",
     "@types/react": "^17.0.0",
     "@types/react-dom": "^17.0.0"
   },
