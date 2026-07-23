@@ -134,6 +134,50 @@ ORDER BY `Message`.`date` ASC
 
 ---
 
+## Message Body Query Optimization Strategy
+
+The Message/MessageBody LEFT OUTER JOIN currently takes 100-150ms per query and blocks the event loop. This is particularly problematic when opening threads.
+
+### Current Pattern
+```sql
+SELECT `Message`.`data`, IFNULL(`MessageBody`.`value`, '!NULLVALUE!') AS `body`
+FROM `Message` 
+LEFT OUTER JOIN `MessageBody` ON `MessageBody`.`id` = `Message`.`id`
+WHERE `Message`.`threadId` = ?
+ORDER BY `Message`.`date` ASC
+```
+
+### Optimization Options (Priority Order)
+
+**Option 1: Separate Queries (Recommended)**
+```typescript
+// Load messages without bodies first
+const messages = await db.query('SELECT * FROM Message WHERE threadId = ? ORDER BY date ASC', [threadId]);
+// Cache allows subsequent requests within 5s to skip body fetching
+// Lazy-load bodies on-demand or in background
+```
+- **Pros:** Eliminates JOIN overhead, messages load instantly, bodies can load progressively
+- **Cons:** Requires UI refactoring to handle async body loading
+- **Estimated impact:** 100-150ms → 10-20ms (messages only)
+
+**Option 2: Message Body Denormalization**
+- Move `body` into `Message` table instead of separate table
+- **Pros:** Single row lookup, no JOIN needed
+- **Cons:** Large database size increase (~50-100MB for typical user), write complexity
+- **Estimated impact:** Moderate if implemented correctly
+
+**Option 3: Index Optimization (Fastest to Implement)**
+- Add indices as documented above
+- May not eliminate JOIN overhead but can improve scanning efficiency
+- **Estimated impact:** 100-150ms → 50-80ms (partial improvement only)
+
+**Recommended Approach:** Option 1 + Index Addition
+- Implement separate queries in query builder
+- Keep message body queries cached (already implemented)
+- Add indices to mailspring-sync for baseline improvement
+
+---
+
 ## Files to Modify
 
 1. **[database-store.ts](app/src/flux/stores/database-store.ts)**
@@ -166,9 +210,16 @@ ORDER BY `Message`.`date` ASC
    - Estimated impact: 50% reduction in repeated query volume
    - Cache invalidation: Automatically cleared on DatabaseStore.trigger() calls
 
+2. **Slow Query Monitoring** [DONE - commit f280ad0f1]
+   - Automatic detection of queries exceeding 100ms threshold
+   - Aggregated statistics: count, total ms, max ms
+   - Top 10 slowest queries reported every 60 seconds in dev mode
+   - Zero-overhead in production (stats collection disabled)
+   - Implementation: _trackSlowQuery() and _reportSlowQueryStats() in database-store.ts
+
 ### 📋 Remaining
 
-2. **Index Addition** (mailspring-sync repository)
+3. **Index Addition** (mailspring-sync repository)
    - Create composite index: `CREATE INDEX idx_contact_lookup ON Contact(accountId, email)`
    - Create index: `CREATE INDEX idx_thread_category_sort ON ThreadCategory(value, inAllMail, lastMessageReceivedTimestamp)`
    - Create index: `CREATE INDEX idx_message_body_join ON MessageBody(id, threadId)`
