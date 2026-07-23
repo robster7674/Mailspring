@@ -1,3 +1,4 @@
+import { runSimpleStartupScenario } from './scenarios/simple-startup';
 import { runAppStartupScenario } from './scenarios/app-startup';
 import { runDatabaseQueryScenario } from './scenarios/database-query';
 import { runSearchScenario } from './scenarios/search';
@@ -10,8 +11,9 @@ import { runAttachmentUploadScenario } from './scenarios/attachment-upload';
 
 async function runAllScenarios() {
   const scenarios = [
-    { name: 'App Startup', fn: () => runAppStartupScenario({ runs: 5 }) },
-    { name: 'CDPStartup', fn: () => runDatabaseQueryScenario({ runs: 3 }) },
+    { name: 'Simple Startup', fn: () => runSimpleStartupScenario({ runs: 5 }) },
+    { name: 'App Startup (CDP)', fn: () => runAppStartupScenario({ runs: 3 }) },
+    { name: 'Database Query', fn: () => runDatabaseQueryScenario({ runs: 3 }) },
     { name: 'Search', fn: () => runSearchScenario({ runs: 3 }) },
     { name: 'Initial Sync', fn: () => runInitialSyncScenario({ runs: 3 }) },
     { name: 'List Render', fn: () => runListRenderScenario({ runs: 3 }) },
