@@ -19,6 +19,8 @@ const AGENT_PATH = path.join(path.dirname(__filename), 'database-agent.js');
 
 const BASE_RETRY_LOCK_DELAY = 50;
 const MAX_RETRY_LOCK_DELAY = 500;
+const SLOW_QUERY_THRESHOLD_MS = 100;
+const SLOW_QUERY_REPORT_INTERVAL = 60000;
 
 type AgentResponse = { results: any[]; agentTime: number };
 type SQLString = string;
@@ -138,6 +140,8 @@ class DatabaseStore extends MailspringStore {
   _waiting = [];
   _preparedStatementCache = new LRUCache<string, Sqlite3.Statement<any[]>>({ max: 500 });
   _queryResultCache = new Map<string, QueryCacheEntry>();
+  _slowQueryStats = new Map<string, { count: number; totalMs: number; maxMs: number }>();
+  _lastSlowQueryReport = 0;
   _databasePath = databasePath(AppEnv.getConfigDirPath(), AppEnv.inSpecMode());
   _db?: Sqlite3.Database;
 
@@ -319,6 +323,7 @@ class DatabaseStore extends MailspringStore {
         const start = Date.now();
         results = stmt[fn](values) as any[];
         const msec = Date.now() - start;
+        this._trackSlowQuery(query, msec);
         if (debugVerbose.enabled) {
           const q = `(${msec}ms) ${query}`;
           debugVerbose(trimTo(q));
@@ -437,6 +442,41 @@ class DatabaseStore extends MailspringStore {
 
   _invalidateQueryCache() {
     this._queryResultCache.clear();
+  }
+
+  _trackSlowQuery(query: SQLString, msec: number) {
+    if (msec < SLOW_QUERY_THRESHOLD_MS) {
+      return;
+    }
+    const queryNormalized = query.replace(/\?/g, '?').substring(0, 100);
+    const stats = this._slowQueryStats.get(queryNormalized) || { count: 0, totalMs: 0, maxMs: 0 };
+    stats.count += 1;
+    stats.totalMs += msec;
+    stats.maxMs = Math.max(stats.maxMs, msec);
+    this._slowQueryStats.set(queryNormalized, stats);
+
+    const now = Date.now();
+    if (now - this._lastSlowQueryReport > SLOW_QUERY_REPORT_INTERVAL && AppEnv.inDevMode()) {
+      this._reportSlowQueryStats();
+      this._lastSlowQueryReport = now;
+      this._slowQueryStats.clear();
+    }
+  }
+
+  _reportSlowQueryStats() {
+    const sorted = Array.from(this._slowQueryStats.entries())
+      .sort((a, b) => b[1].maxMs - a[1].maxMs)
+      .slice(0, 10);
+
+    if (sorted.length > 0 && debugVerbose.enabled) {
+      console.group('🐌 Top 10 Slowest Queries (last 60s)');
+      for (const [query, stats] of sorted) {
+        console.log(
+          `${stats.maxMs.toFixed(0)}ms max (${stats.totalMs.toFixed(0)}ms total, ${stats.count}x) - ${trimTo(query)}`
+        );
+      }
+      console.groupEnd();
+    }
   }
 
   trigger(...args: any[]) {
