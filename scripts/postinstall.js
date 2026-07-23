@@ -12,10 +12,12 @@ const { execSync } = require('child_process');
 const appDependencies = require('../app/package.json').dependencies;
 const rootDependencies = require('../package.json').dependencies;
 const npmElectronTarget = rootDependencies.electron;
+// Strip semver prefix (^, ~, etc.) for node-gyp which expects plain version
+const nodeGypElectronTarget = npmElectronTarget.replace(/^[\^~>=<]+/, '');
 const npmEnvs = {
   system: process.env,
   electron: Object.assign({}, process.env, {
-    npm_config_target: npmElectronTarget,
+    npm_config_target: nodeGypElectronTarget,
     npm_config_arch: process.env.OVERRIDE_TO_INTEL ? 'x64' : process.arch,
     npm_config_target_arch: process.env.OVERRIDE_TO_INTEL ? 'x64' : process.arch,
     npm_config_disturl: 'https://electronjs.org/headers',
