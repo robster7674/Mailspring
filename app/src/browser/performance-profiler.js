@@ -4,8 +4,9 @@
  */
 
 class PerformanceProfiler {
-  constructor(enabled = false) {
+  constructor(enabled = false, mode = 'production') {
     this.enabled = enabled;
+    this.mode = mode; // 'production' = daily driver, 'development' = detailed
     this.metrics = {
       eventLoopBlocks: [],
       wakelocks: new Map(),
@@ -13,11 +14,27 @@ class PerformanceProfiler {
       raceConditions: [],
       asyncOperations: new Map(),
     };
-    this.thresholds = {
-      eventLoopBlockMs: 16, // >16ms blocks 60fps
-      lockWaitMs: 100, // >100ms is contention
-      asyncTimeoutMs: 5000, // >5s is suspicious
-    };
+
+    // Adjust thresholds based on mode
+    if (mode === 'production') {
+      // More lenient for daily use - only warn on serious issues
+      this.thresholds = {
+        eventLoopBlockMs: 16,
+        eventLoopWarnMs: 100, // Only warn if >100ms
+        lockWaitMs: 500, // >500ms is serious contention
+        asyncTimeoutMs: 5000, // >5s is serious wakelock
+      };
+      this.verbose = false;
+    } else {
+      // Development mode - catch everything
+      this.thresholds = {
+        eventLoopBlockMs: 16,
+        eventLoopWarnMs: 50,
+        lockWaitMs: 100,
+        asyncTimeoutMs: 1000,
+      };
+      this.verbose = true;
+    }
   }
 
   /**
@@ -38,8 +55,9 @@ class PerformanceProfiler {
           stack: new Error().stack,
         });
 
-        if (delta > 100) {
-          console.warn(`[PERF] Event loop blocked for ${delta}ms`);
+        // Only warn in development mode or for serious blocks
+        if (this.verbose || delta > this.thresholds.eventLoopWarnMs) {
+          console.warn(`[PERF] Event loop blocked for ${delta}ms (${this.mode})`);
         }
       }
       lastCheck = now;
@@ -69,14 +87,21 @@ class PerformanceProfiler {
         const op = this.metrics.asyncOperations.get(id);
         if (op) op.resolved = true;
 
+        // Track all slow operations
         if (duration > this.thresholds.asyncTimeoutMs) {
-          console.warn(`[PERF] Async operation "${name}" took ${duration}ms`);
           this.metrics.wakelocks.set(id, {
             name,
             duration,
             type: 'resolved-slow',
             stack,
           });
+
+          // Only warn for serious wakelocks in production mode
+          if (this.verbose || duration > this.thresholds.asyncTimeoutMs * 2) {
+            console.warn(
+              `[PERF] Async operation "${name}" took ${duration}ms (${this.mode})`
+            );
+          }
         }
         this.metrics.asyncOperations.delete(id);
         return result;
@@ -86,9 +111,6 @@ class PerformanceProfiler {
         const op = this.metrics.asyncOperations.get(id);
         if (op) op.resolved = false;
 
-        console.error(
-          `[PERF] Async operation "${name}" failed after ${duration}ms: ${error.message}`
-        );
         this.metrics.wakelocks.set(id, {
           name,
           duration,
@@ -96,6 +118,13 @@ class PerformanceProfiler {
           error: error.message,
           stack,
         });
+
+        // Always warn on errors
+        if (this.verbose) {
+          console.error(
+            `[PERF] Async operation "${name}" failed after ${duration}ms: ${error.message}`
+          );
+        }
         this.metrics.asyncOperations.delete(id);
         throw error;
       });
@@ -124,7 +153,10 @@ class PerformanceProfiler {
 
         if (locked) {
           waiters.push(lockId);
-          console.warn(`[PERF] Lock "${name}" contended (${waiters.length} waiters)`);
+          // Only warn on serious contention
+          if (this.verbose || waiters.length > 2) {
+            console.warn(`[PERF] Lock "${name}" contended (${waiters.length} waiters)`);
+          }
         }
 
         while (locked) {
@@ -142,12 +174,16 @@ class PerformanceProfiler {
         });
 
         if (waitTime > this.thresholds.lockWaitMs) {
-          console.warn(`[PERF] Lock "${name}" wait time: ${waitTime}ms`);
           this.metrics.locks.set(lockId, {
             name,
             waitTime,
             waiterCount: waiters.length,
           });
+
+          // Only warn for serious wait times
+          if (this.verbose || waitTime > this.thresholds.lockWaitMs * 2) {
+            console.warn(`[PERF] Lock "${name}" wait time: ${waitTime}ms`);
+          }
         }
 
         waiters.splice(waiters.indexOf(lockId), 1);
@@ -368,16 +404,16 @@ class PerformanceProfiler {
 // Export singleton
 let globalProfiler = null;
 
-function initAdvancedProfiler(enabled = false) {
+function initAdvancedProfiler(enabled = false, mode = 'production') {
   if (!globalProfiler) {
-    globalProfiler = new PerformanceProfiler(enabled);
+    globalProfiler = new PerformanceProfiler(enabled, mode);
   }
   return globalProfiler;
 }
 
 function getAdvancedProfiler() {
   if (!globalProfiler) {
-    globalProfiler = new PerformanceProfiler(false);
+    globalProfiler = new PerformanceProfiler(false, 'production');
   }
   return globalProfiler;
 }
