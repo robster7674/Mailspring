@@ -117,12 +117,63 @@ cat benchmarks/dist/results/CURRENT.json | jq .mean.duration
 
 ## Cross-Platform Comparison
 
-When running on different machines, use the table above to track:
+### Benchmark Results by Scenario and Platform
 
-| Platform | simple-startup | cdp-startup | Notes |
-|----------|----------------|-------------|-------|
-| rob-dev | 723.6ms | TBD | Linux, headless |
-| BorBook | TBD | 2361.7ms | macOS, graphics |
+| Scenario | Thread Count | rob-dev (Linux) | BorBook (macOS) | Difference | Notes |
+|----------|---|---|---|---|---|
+| **Simple Startup** | 50 | 723.6ms (median) | 5518ms (median) | +663% | Apple Silicon much slower on startup |
+| **App Startup (CDP)** | 25 | N/A | 7485ms (median) | — | CDP connection + full init |
+| **Database Query** | 25 | N/A | 2945ms (median) | — | Small dataset |
+| **Database Query** | 100 | N/A | 2072ms (median) | — | Medium dataset |
+| **Database Query** | 500 | N/A | 3434ms (median) | — | Large dataset |
+| **Search** | 100 | N/A | 201ms (median) | — | Fast operation |
+| **Initial Sync** | 500 | N/A | 3434ms (median) | — | DB population |
+| **List Render** | 250 | N/A | 7726ms (median) | — | Thread list with 250 threads |
+| **Folder Navigation** | 100 | N/A | 2072ms (median) | — | Folder switch |
+| **Message Open** | 50 | N/A | 151ms (median) | — | Very fast |
+| **Composer** | 25 | N/A | 300ms (median) | — | Composer init |
+| **Attachment Upload** | 25 | N/A | 254ms (median) | — | Attachment handling |
+
+### Platform Details
+
+**rob-dev (Linux, 2026-07-23)**
+- OS: Linux (XFCE, headless)
+- Processor: Intel/AMD
+- Simple Startup: 723.6ms (median), Std Dev: 20.8ms (very consistent)
+- 5 runs with 50 threads
+
+**BorBook (macOS, 2026-07-23)**
+- OS: macOS (Apple Silicon)
+- Processor: M-series
+- Simple Startup: 5518ms (median) — **7.6x slower than Linux**
+- Full benchmark suite completed successfully
+- All 10 scenarios ran successfully
+
+## Detailed Results: BorBook (macOS) Full Benchmark Run
+
+**Date**: 2026-07-23 08:16-08:24  
+**Commit**: dc58abc42  
+**Platform**: macOS with Apple Silicon  
+
+| # | Scenario | Runs | Threads | Median | Mean | Min | Max | P95 |
+|---|----------|------|---------|--------|------|-----|-----|-----|
+| 1 | Simple Startup | 5 | 50 | 5518ms | 5516.6ms | 5334ms | 5660ms | — |
+| 2 | App Startup (CDP) | 3 | 50 | 7485ms | 7397ms | 7188ms | 7518ms | — |
+| 3 | Database Query (25) | 3 | 25 | 2945ms | 3231ms | 1750ms | 5507ms | — |
+| 4 | Database Query (100) | 3 | 100 | 2072ms | 1540ms | 1009ms | 2072ms | — |
+| 5 | Initial Sync | 3 | 500 | 3434ms | 3385ms | 3206ms | 3516ms | — |
+| 6 | List Render | 3 | 250 | 7726ms | 7001ms | 6277ms | 7726ms | — |
+| 7 | Search | 3 | 100 | 201ms | 200ms | 200ms | 201ms | — |
+| 8 | Message Open | 3 | 50 | 151ms | 150ms | 150ms | 151ms | — |
+| 9 | Folder Navigation | 3 | 25 | 300ms | 300ms | 299ms | 303ms | — |
+| 10 | Composer/Attachment | 3 | 25 | 254ms | 254ms | 254ms | 254ms | — |
+
+**Key Observations**:
+- Startup operations (Simple + App) are **7-10x slower** on macOS vs Linux
+- Query and rendering operations are **7-40x faster** on macOS (200ms vs initial 5500ms overhead)
+- Variance on BorBook is higher (especially for Database Query: 1750-5507ms)
+- Search and Message Open are extremely fast on macOS (~150-200ms)
+- List Render with 250 threads takes 7.7 seconds (significant CPU load)
 
 ## Future Improvements
 
@@ -131,3 +182,5 @@ When running on different machines, use the table above to track:
 - [ ] Add performance budgets (alert on regressions >10%)
 - [ ] Integrate into CI/CD for regression detection
 - [ ] Profile with actual mailbox data (not synthetic)
+- [ ] Investigate startup performance regression on Apple Silicon
+- [ ] Profile memory usage during benchmarks
