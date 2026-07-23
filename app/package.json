@@ -25,6 +25,7 @@
     "collapse-whitespace": "^1.1.7",
     "debug": "github:emorikawa/debug#nylas",
     "dompurify": "^3.3.1",
+    "electron": "^43.2.0",
     "emoji-data": "^0.2.0",
     "event-kit": "^1.0.2",
     "getmac": "^1.2.1",

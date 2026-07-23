@@ -33,17 +33,6 @@ const { app, session, protocol } = electronModule;
 const path = require('path');
 const os = require('os');
 
-// Debug: log what we got from require('electron')
-if (!app || !session || !protocol) {
-  console.error('DEBUG: require("electron") returned:', {
-    type: typeof electronModule,
-    constructor: electronModule?.constructor?.name,
-    isString: typeof electronModule === 'string',
-    toString: String(electronModule).substring(0, 200),
-    keys: Object.keys(electronModule || {}),
-  });
-}
-
 if (typeof process.setFdLimit === 'function') {
   process.setFdLimit(1024);
 }
