@@ -33,8 +33,11 @@ function npm(cmd, options) {
       `\n-- Running npm ${cmd} in ${cwd} with ${env} config (arch=${npmEnvs[env].npm_config_target_arch}) --`
     );
 
+    // Suppress deprecation warnings about env config (they still work in current npm versions)
+    const fullCmd = `npm ${cmd} --loglevel=warn`;
+
     safeExec(
-      `npm ${cmd}`,
+      fullCmd,
       {
         cwd: path.resolve(__dirname, '..', cwd),
         env: npmEnvs[env],
