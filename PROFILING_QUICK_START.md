@@ -222,12 +222,36 @@ component.on('refresh', debouncedUpdate);
 
 ---
 
+## Two-Level Profiling Strategy
+
+**Level 1: Custom Profiler (1 minute diagnosis)**
+```bash
+ADVANCED_PROFILE=1 npm start
+# Quick alerts: [PERF] Event loop blocked, lock contended, etc.
+# Terminal output, minimal overhead
+```
+
+**Level 2: CDP (Deep dive, when Level 1 shows something)**
+```bash
+npm start -- --remote-debugging-port=9222
+# Open chrome://devtools (any Chromium browser)
+# See exact flame graphs, memory, rendering timeline
+```
+
+Example workflow:
+1. See `[PERF] Event loop blocked for 200ms` → Switch to CDP
+2. CDP flame graph shows: 180ms in `DatabaseStore.findAll()`
+3. Add database index or optimize query
+4. Re-run custom profiler to verify improvement
+
 ## Tips
 
 - **Profile early in development**, not after performance problems appear
+- **Start with custom profiler** (fast feedback), then CDP if needed (detailed analysis)
 - **Run with profiling on both Linux and macOS** for platform differences
 - **Compare before/after** benchmark results when optimizing
 - **Document what was optimized** and why in commit messages
 - **Use `executeWithDatabaseLock()`** for all database operations when profiling
+- **CDP doesn't require Chrome browser** — works with any Chromium browser (Chrome, Edge, Brave, Safari on macOS)
 
 See full guide in [PROFILING_GUIDE.md](PROFILING_GUIDE.md)
