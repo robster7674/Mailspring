@@ -8,6 +8,19 @@ const profiler = profilerModule.initProfiler(process.env.PROFILE_STARTUP === '1'
 global.startupProfiler = profiler;
 profiler.mark('main.js-loaded');
 
+// Initialize advanced profiler for detecting wakelocks, races, lock contention
+const advancedProfilerModule = require('./performance-profiler.js');
+const advancedProfiler = advancedProfilerModule.initAdvancedProfiler(
+  process.env.ADVANCED_PROFILE === '1'
+);
+global.advancedProfiler = advancedProfiler;
+
+// Monitor event loop for frame drops
+if (process.env.ADVANCED_PROFILE === '1') {
+  advancedProfiler.monitorEventLoop();
+  profiler.mark('advanced-profiler-enabled');
+}
+
 const util = require('util');
 
 const fs = require('fs');
