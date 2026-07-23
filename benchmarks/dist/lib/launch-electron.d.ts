@@ -3,6 +3,6 @@ export interface LaunchOptions {
     headless?: boolean;
 }
 export declare function launchElectron(options?: LaunchOptions): Promise<{
-    electronApp: import("playwright-core").ElectronApplication;
+    electronApp: any;
     configDirPath: string;
 }>;

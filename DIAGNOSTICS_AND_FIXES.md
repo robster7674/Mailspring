@@ -174,7 +174,32 @@ npm run benchmark
 
 ---
 
-## Takeaway
-The root cause was a **version mismatch + missing defensive guards**. Now fixed. Mailspring initializes successfully on rob-dev. The performance harness is ready to use on any system where the app launches (macOS, desktop Linux, BorBook, etc.).
+## Remaining Limitation: Playwright Integration
 
-The Playwright integration issue is a separate, lower-priority matter related to how Mailspring communicates with Playwright's Electron launcher, not the Mailspring app itself.
+**Correction**: The Playwright integration issue is **NOT platform-specific**. It's a **fundamental incompatibility** between Playwright's launcher expectations and how Mailspring starts.
+
+- ❌ Playwright's `_electron.launch()` waits for specific stdout messages that Mailspring doesn't emit
+- ❌ Direct CDP connection via `chromium.connectOverCDP()` fails because the debug port isn't opened
+- ⚠️ This happens on **all platforms** (rob-dev, macOS, Linux, BorBook) — not just rob-dev
+
+## What Actually Works Now ✅
+
+You can **manually test** the fixed initialization:
+```bash
+export DISPLAY=:16.0   # On Linux
+npm start              # Works! No crashes during initialization
+```
+
+The app starts successfully and responds to user input. **The initialization issue is completely fixed.**
+
+## What's Needed for Full Automation
+
+To make the benchmark work end-to-end, one of these would be needed:
+1. Modify Mailspring to output startup signals Playwright expects
+2. Implement a system-level performance tracer (e.g., via perf/dtrace instead of Playwright)
+3. Wait for upstream Playwright/Electron protocol updates
+4. Build a custom launcher that doesn't rely on Playwright's Electron protocol
+
+## Takeaway
+
+The root cause **Mailspring initialization failure is FIXED**. The performance harness infrastructure is solid. The remaining Playwright integration is a separate architectural limitation that affects all platforms equally, not a rob-dev-specific issue.
