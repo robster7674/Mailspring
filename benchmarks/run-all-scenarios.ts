@@ -62,7 +62,15 @@ async function runAllScenarios() {
     }
 
     const result = results[scenario.name];
-    if (result && result.median && typeof result.median.duration === 'number') {
+    if (
+      result &&
+      result.median &&
+      typeof result.median.duration === 'number' &&
+      result.mean &&
+      result.min &&
+      result.max &&
+      result.p95
+    ) {
       const median = result.median.duration;
       const mean = result.mean.duration || 0;
       const min = result.min.duration;
