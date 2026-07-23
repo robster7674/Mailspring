@@ -59,8 +59,6 @@ export default class Application extends EventEmitter {
   _initialized = false;
   _pendingLaunchOptions: any[] = [];
   _pendingUrls: string[] = [];
-  _mailsyncOptions: any = null;
-  _mailsyncInitialized = false;
 
   async start(options) {
     const profiler = global.startupProfiler || { mark: () => {} };
@@ -85,10 +83,49 @@ export default class Application extends EventEmitter {
       safeMode,
     });
 
-    // Defer mailsync initialization to after window is shown
-    // This dramatically improves startup time on macOS (5x faster)
-    profiler.mark('mailsync-deferred-until-window-ready');
-    this._mailsyncOptions = options;
+    try {
+      profiler.mark('mailsync-process-creation-start');
+      const t0 = Date.now();
+      const mailsync = new MailsyncProcess(options);
+      profiler.mark(`mailsync-process-created (${Date.now() - t0}ms)`);
+
+      profiler.mark('mailsync-migrate-start');
+      const t1 = Date.now();
+      await mailsync.migrate();
+      const migrationTime = Date.now() - t1;
+      profiler.mark(`mailsync-migrate-complete (${migrationTime}ms)`);
+      if (migrationTime > 1000) {
+        console.error(`[PERF WARNING] Mailsync migration took ${migrationTime}ms on ${process.platform}`);
+      }
+    } catch (err) {
+      let message = null;
+      let buttons = [localized('Quit')];
+      if (err.toString().includes('ENOENT')) {
+        message = localized(
+          `Mailspring could not find the mailsync process. If you're building Mailspring from source, make sure mailsync.tar.gz has been downloaded and unpacked in your working copy.`
+        );
+      } else if (err.toString().includes('spawn')) {
+        message = localized(`Mailspring could not spawn the mailsync process. %@`, err.toString());
+      } else {
+        message = localized(
+          `We encountered a problem with your local email database. %@\n\nCheck that no other copies of Mailspring are running and click Rebuild to reset your local cache.`,
+          err.toString()
+        );
+        buttons = [localized('Quit'), localized('Rebuild')];
+      }
+
+      const buttonIndex = dialog.showMessageBoxSync({ type: 'warning', buttons, message });
+
+      if (buttonIndex === 0) {
+        app.quit();
+      } else {
+        this._deleteDatabase(() => {
+          app.relaunch();
+          app.quit();
+        });
+      }
+      return;
+    }
 
     profiler.mark('config-loading-start');
     const t2 = Date.now();
@@ -167,10 +204,6 @@ export default class Application extends EventEmitter {
     // followed by any second-instance options that arrived while we were
     // still awaiting async initialization steps above.
     this._initialized = true;
-
-    // Initialize mailsync in background after UI is ready (deferred for performance)
-    this._initializeMailsyncAsync();
-
     this.handleLaunchOptions(options);
     for (const pendingOpts of this._pendingLaunchOptions.splice(0)) {
       this.handleLaunchOptions(pendingOpts);
@@ -190,61 +223,6 @@ export default class Application extends EventEmitter {
   getMainWindow() {
     const win = this.windowManager.get(WindowManager.MAIN_WINDOW);
     return win ? win.browserWindow : null;
-  }
-
-  async _initializeMailsyncAsync() {
-    // Deferred mailsync initialization for better startup performance
-    // This runs after the window is shown, not blocking on startup
-    if (this._mailsyncInitialized || !this._mailsyncOptions) {
-      return;
-    }
-
-    const profiler = global.startupProfiler || { mark: () => {} };
-    const options = this._mailsyncOptions;
-
-    try {
-      profiler.mark('mailsync-async-init-start');
-      const t0 = Date.now();
-      const mailsync = new MailsyncProcess(options);
-      profiler.mark(`mailsync-process-created (${Date.now() - t0}ms)`);
-
-      profiler.mark('mailsync-migrate-start');
-      const t1 = Date.now();
-      await mailsync.migrate();
-      const migrationTime = Date.now() - t1;
-      profiler.mark(`mailsync-migrate-complete (${migrationTime}ms)`);
-      if (migrationTime > 1000) {
-        console.error(`[PERF] Mailsync migration took ${migrationTime}ms on ${process.platform}`);
-      }
-      this._mailsyncInitialized = true;
-    } catch (err) {
-      let message = null;
-      let buttons = [localized('Quit')];
-      if (err.toString().includes('ENOENT')) {
-        message = localized(
-          `Mailspring could not find the mailsync process. If you're building Mailspring from source, make sure mailsync.tar.gz has been downloaded and unpacked in your working copy.`
-        );
-      } else if (err.toString().includes('spawn')) {
-        message = localized(`Mailspring could not spawn the mailsync process. %@`, err.toString());
-      } else {
-        message = localized(
-          `We encountered a problem with your local email database. %@\n\nCheck that no other copies of Mailspring are running and click Rebuild to reset your local cache.`,
-          err.toString()
-        );
-        buttons = [localized('Quit'), localized('Rebuild')];
-      }
-
-      const buttonIndex = dialog.showMessageBoxSync({ type: 'warning', buttons, message });
-
-      if (buttonIndex === 0) {
-        app.quit();
-      } else {
-        this._deleteDatabase(() => {
-          app.relaunch();
-          app.quit();
-        });
-      }
-    }
   }
 
   getAllWindowDimensions() {
