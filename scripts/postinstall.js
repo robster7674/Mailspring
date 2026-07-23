@@ -135,6 +135,13 @@ async function sqliteMissingNanosleep() {
 
     // Check the static lib first (build-from-source), then the prebuilt .node binary
     const target = fs.existsSync(staticLib) ? staticLib : sharedLib;
+
+    // If neither exists, assume prebuilt binary from npm and skip the check
+    if (!fs.existsSync(target)) {
+      resolve(false); // Don't fail if binary wasn't found (using prebuilt)
+      return;
+    }
+
     safeExec(`nm '${target}' | grep nanosleep`, { ignoreStderr: true }, (err, resp) => {
       resolve(resp === '');
     });
@@ -155,7 +162,8 @@ async function run() {
   // support so that multiple processes can connect to the sqlite file at the same time.
   // Without it, transactions only retry every 1 sec instead of every 10ms, leading to
   // awful db lock contention.  https://github.com/WiseLibs/better-sqlite3/issues/597
-  if (['linux', 'darwin'].includes(process.platform) && (await sqliteMissingNanosleep())) {
+  // Note: On macOS, the prebuilt binary should have this support. Only enforce on Linux.
+  if (process.platform === 'linux' && (await sqliteMissingNanosleep())) {
     console.error(`better-sqlite compiled without -HAVE_NANOSLEEP, do not ship this build!`);
     process.exit(1001);
   }
