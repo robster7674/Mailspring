@@ -426,7 +426,9 @@ class DatabaseStore extends MailspringStore {
       return;
     }
     const cacheKey = generateQueryCacheKey(query, values);
-    const ttl = 5000;
+    const isContactQuery = query.includes('`Contact`') && query.includes('`email`');
+    const isThreadQuery = query.includes('`Thread`') && query.includes('`ThreadCategory`');
+    const ttl = isContactQuery ? 10000 : isThreadQuery ? 2000 : 5000;
     this._queryResultCache.set(cacheKey, {
       results,
       expiresAt: Date.now() + ttl,

@@ -156,17 +156,61 @@ ORDER BY `Message`.`date` ASC
 
 ## Quick Wins (Implement First)
 
-1. **Query Result Caching**: Cache ThreadCategory query results for 5–10 seconds
-   - Estimated impact: 50% reduction in query volume
-   - Implementation: LRU cache in database-store.ts
+### ✅ Completed
 
-2. **Index Addition**: Create composite index on Contact(accountId, email)
-   - Estimated impact: Contact queries from 130ms → <10ms
-   - Implementation: In mailspring-sync schema
+1. **Query Result Caching** [DONE - commit 45375f0ad]
+   - Cache ThreadCategory query results for 2 seconds (shorter TTL for freshness)
+   - Cache Contact queries for 10 seconds (longer TTL, highly repetitive)
+   - Cache other queries for 5 seconds
+   - Implementation: LRU Map in database-store.ts with TTL tracking
+   - Estimated impact: 50% reduction in repeated query volume
+   - Cache invalidation: Automatically cleared on DatabaseStore.trigger() calls
+
+### 📋 Remaining
+
+2. **Index Addition** (mailspring-sync repository)
+   - Create composite index: `CREATE INDEX idx_contact_lookup ON Contact(accountId, email)`
+   - Create index: `CREATE INDEX idx_thread_category_sort ON ThreadCategory(value, inAllMail, lastMessageReceivedTimestamp)`
+   - Create index: `CREATE INDEX idx_message_body_join ON MessageBody(id, threadId)`
+   - Estimated impact: Contact queries from 130ms → <10ms; ThreadCategory from 2700ms → <500ms
+   - Implementation: In mailspring-sync schema initialization
 
 3. **Query Plan Logging**: Enable EXPLAIN QUERY PLAN in production for slow queries >200ms
    - Estimated impact: Identify root causes faster
    - Implementation: Already present in code but logging may need adjustment
+
+---
+
+## Required Database Indices (mailspring-sync)
+
+These indices should be added to the database schema in the mailspring-sync C++ project:
+
+```sql
+-- Contact lookup index (critical for composer performance)
+CREATE INDEX IF NOT EXISTS idx_contact_accountid_email 
+  ON Contact(accountId, email);
+
+-- ThreadCategory sort index (critical for inbox loading)
+CREATE INDEX IF NOT EXISTS idx_threadcategory_value_inallmail_sort
+  ON ThreadCategory(value, inAllMail, lastMessageReceivedTimestamp DESC);
+
+-- Message body join index
+CREATE INDEX IF NOT EXISTS idx_messagebody_id
+  ON MessageBody(id);
+
+-- Additional indices for common queries
+CREATE INDEX IF NOT EXISTS idx_message_threadid_date
+  ON Message(threadId, date);
+
+CREATE INDEX IF NOT EXISTS idx_thread_lastmessage
+  ON Thread(lastMessageReceivedTimestamp DESC);
+```
+
+**Implementation Notes:**
+- These indices should be created in the database initialization/migration code in mailspring-sync
+- Run `ANALYZE` after index creation to update query planner statistics
+- Use `EXPLAIN QUERY PLAN` before and after to verify improvement
+- Monitor database size growth (indices add ~10-20% to database size)
 
 ---
 
