@@ -236,6 +236,62 @@ class PerformanceProfiler {
   }
 
   /**
+   * Clean up old metrics to prevent unbounded memory growth
+   * Call periodically or manually to reduce memory usage during long sessions
+   */
+  cleanupMetrics(maxEntries = 1000) {
+    if (this.metrics.eventLoopBlocks.length > maxEntries) {
+      this.metrics.eventLoopBlocks = this.metrics.eventLoopBlocks.slice(-maxEntries);
+    }
+
+    // Clean up old race condition data (keep last 100 per operation)
+    for (const [opName, ops] of Object.entries(this.metrics.raceConditions)) {
+      if (ops.length > 100) {
+        this.metrics.raceConditions[opName] = ops.slice(-100);
+      }
+    }
+  }
+
+  /**
+   * Clear all metrics (useful between test runs or to reset session)
+   */
+  resetMetrics() {
+    this.metrics = {
+      eventLoopBlocks: [],
+      wakelocks: new Map(),
+      locks: new Map(),
+      raceConditions: [],
+      asyncOperations: new Map(),
+    };
+  }
+
+  /**
+   * Get memory usage estimate (for diagnostics)
+   */
+  getMemoryUsage() {
+    const blockSize = this.metrics.eventLoopBlocks.length * 200; // ~200 bytes per entry
+    const wakelockSize = this.metrics.wakelocks.size * 300; // ~300 bytes per entry
+    const lockSize = this.metrics.locks.size * 200; // ~200 bytes per entry
+    const raceSize = Object.values(this.metrics.raceConditions).flat().length * 150; // ~150 bytes per entry
+
+    return {
+      estimatedBytes: blockSize + wakelockSize + lockSize + raceSize,
+      breakdown: {
+        eventLoopBlocks: blockSize,
+        wakelocks: wakelockSize,
+        locks: lockSize,
+        raceConditions: raceSize,
+      },
+      entries: {
+        eventLoopBlocks: this.metrics.eventLoopBlocks.length,
+        wakelocks: this.metrics.wakelocks.size,
+        locks: this.metrics.locks.size,
+        raceConditions: Object.values(this.metrics.raceConditions).flat().length,
+      },
+    };
+  }
+
+  /**
    * Get summary report
    */
   getSummary() {
@@ -395,6 +451,14 @@ class PerformanceProfiler {
       for (const [opName, stats] of Object.entries(summary.raceConditions)) {
         console.log(`  ${opName}: ${stats.callCount} calls (${stats.frequency})`);
       }
+    }
+
+    const memUsage = this.getMemoryUsage();
+    console.log('\nPROFILER MEMORY USAGE:');
+    console.log(`  Estimated: ${(memUsage.estimatedBytes / 1024).toFixed(1)}KB`);
+    console.log(`  Entries: ${memUsage.entries.eventLoopBlocks} blocks, ${memUsage.entries.wakelocks} wakelocks, ${memUsage.entries.locks} locks, ${memUsage.entries.raceConditions} race-condition ops`);
+    if (memUsage.estimatedBytes > 10 * 1024 * 1024) {
+      console.warn(`  ⚠️  Profiler memory usage >10MB. Call profiler.cleanupMetrics() or profiler.resetMetrics() to reduce.`);
     }
 
     console.log('='.repeat(70) + '\n');

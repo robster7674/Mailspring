@@ -166,6 +166,53 @@ node benchmarks/dist/scenarios/list-render.js
 
 ---
 
+## Limitations & Known Issues
+
+### Application-Level Only
+This profiler measures **what the Mailspring app is doing**, not system-level behavior:
+- ❌ Doesn't see system calls (file I/O, network syscalls)
+- ❌ Doesn't see garbage collection pauses
+- ❌ Doesn't see kernel context switches
+- ✅ Sees event loop delays (application consequence of GC/syscalls)
+- ✅ Sees async operation duration (time spent in app code)
+
+**For system-level analysis**: Use Instruments.app on macOS or `perf` on Linux.
+
+### Memory Growth in Long Sessions
+Metrics arrays grow unbounded:
+```javascript
+// After 1 hour with normal activity: ~5-10MB
+// After 24 hours: Could exceed 100MB
+
+// Fix: Clean up periodically
+profiler.cleanupMetrics(1000);  // Keep last 1000 entries
+profiler.resetMetrics();        // Full reset
+```
+
+Check usage: `profiler.printSummary()` shows "Profiler memory usage" at bottom.
+
+### Race Condition Detection
+Current implementation is simplistic:
+- Flags any operation called >1 time in 1-second window
+- **False positives**: Rendering 100 list items in parallel is normal, not a race
+- **Use carefully**: Manually verify alerts, don't blindly fix every warning
+
+Better approach: Use CDP flame graphs to see actual execution pattern.
+
+### Lock Implementation
+Simple `while(locked)` busy-wait pattern:
+- Creates ~1000 microtasks/sec per waiter
+- Works for detection but not optimal for measurement
+- Detects contention, but not perfectly correlated with actual contention
+
+### Not Suitable For Production
+- Overhead: 1-5% CPU
+- Memory: Unbounded growth without cleanup
+- Not designed for shipping code
+- Use APM platforms (Sentry, DataDog, New Relic) for production
+
+---
+
 ## Profiling Checklist
 
 ### Before Optimizing

@@ -244,6 +244,43 @@ Example workflow:
 3. Add database index or optimize query
 4. Re-run custom profiler to verify improvement
 
+## Memory Management (Long Sessions)
+
+If profiling runs for hours, metrics accumulate:
+
+```bash
+# Check memory usage
+node -e "const p = require('./app/src/browser/performance-profiler'); const prof = p.initAdvancedProfiler(true); console.log(prof.getMemoryUsage());"
+
+# Clean up old entries (keep last 1000)
+const profiler = getAdvancedProfiler();
+profiler.cleanupMetrics(1000);  // ~200KB memory
+
+# Or reset completely (loses historical data)
+profiler.resetMetrics();
+```
+
+**Profiler will warn if memory >10MB**, suggesting cleanup.
+
+## When to Use / Skip
+
+| Scenario | Recommendation |
+|----------|-----------------|
+| **Development & debugging** | ✅ Use (`ADVANCED_PROFILE=1`) |
+| **Finding performance regressions** | ✅ Use with benchmarks |
+| **Long-running sessions** | ⚠️ Use with periodic `cleanupMetrics()` |
+| **Production monitoring** | ❌ Skip (use APM platform instead) |
+| **Real-time analytics** | ❌ Skip (use CDP + backend analytics) |
+| **System-level profiling** | ❌ Skip (use Instruments.app on macOS) |
+
+## Limitations
+
+- **Application-level only** — Doesn't capture system calls, GC pauses, kernel time
+- **Main thread only** — Worker threads not profiled
+- **Unbounded memory growth** — Call `cleanupMetrics()` for long sessions
+- **Simple race detection** — May have false positives on legitimate parallel work
+- **Lock overhead** — Profiler itself consumes CPU (use in dev mode, not shipping)
+
 ## Tips
 
 - **Profile early in development**, not after performance problems appear
@@ -253,5 +290,6 @@ Example workflow:
 - **Document what was optimized** and why in commit messages
 - **Use `executeWithDatabaseLock()`** for all database operations when profiling
 - **CDP doesn't require Chrome browser** — works with any Chromium browser (Chrome, Edge, Brave, Safari on macOS)
+- **Clean up metrics periodically** if running profiler for >30 minutes
 
 See full guide in [PROFILING_GUIDE.md](PROFILING_GUIDE.md)
