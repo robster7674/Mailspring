@@ -244,6 +244,16 @@ class PerformanceProfiler {
       this.metrics.eventLoopBlocks = this.metrics.eventLoopBlocks.slice(-maxEntries);
     }
 
+    if (this.metrics.wakelocks.size > maxEntries) {
+      const entries = [...this.metrics.wakelocks.entries()].slice(-maxEntries);
+      this.metrics.wakelocks = new Map(entries);
+    }
+
+    if (this.metrics.locks.size > maxEntries) {
+      const entries = [...this.metrics.locks.entries()].slice(-maxEntries);
+      this.metrics.locks = new Map(entries);
+    }
+
     // Clean up old race condition data (keep last 100 per operation)
     for (const [opName, ops] of Object.entries(this.metrics.raceConditions)) {
       if (ops.length > 100) {
