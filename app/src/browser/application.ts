@@ -59,9 +59,15 @@ export default class Application extends EventEmitter {
   _initialized = false;
   _pendingLaunchOptions: any[] = [];
   _pendingUrls: string[] = [];
+  _databaseAccessLock: any = null;
 
   async start(options) {
     const profiler = global.startupProfiler || { mark: () => {} };
+    const advancedProfiler = global.advancedProfiler || {
+      trackAsyncOperation: (n, p) => p,
+      trackOperation: () => {},
+      createMutex: () => ({ lock: async () => {}, unlock: () => {}, locked: false }),
+    };
     const { resourcePath, configDirPath, version, devMode, specMode, safeMode } = options;
 
     profiler.mark('application-start-initialization');
@@ -91,11 +97,14 @@ export default class Application extends EventEmitter {
 
       profiler.mark('mailsync-migrate-start');
       const t1 = Date.now();
-      await mailsync.migrate();
+      const migrationPromise = mailsync.migrate();
+      // Track as potential wakelock if slow
+      await advancedProfiler.trackAsyncOperation('mailsync.migrate', migrationPromise);
+
       const migrationTime = Date.now() - t1;
       profiler.mark(`mailsync-migrate-complete (${migrationTime}ms)`);
       if (migrationTime > 1000) {
-        console.error(`[PERF WARNING] Mailsync migration took ${migrationTime}ms on ${process.platform}`);
+        console.error(`[PERF] Mailsync migration took ${migrationTime}ms on ${process.platform}`);
       }
     } catch (err) {
       let message = null;
@@ -149,11 +158,11 @@ export default class Application extends EventEmitter {
     }
     profiler.mark('config-load-start');
     const t4 = Date.now();
-    config.load();
+    await advancedProfiler.trackAsyncOperation('config.load', Promise.resolve(config.load()));
     const configLoadTime = Date.now() - t4;
     profiler.mark(`config-loaded (${configLoadTime}ms)`);
     if (configLoadTime > 500) {
-      console.error(`[PERF WARNING] Config load took ${configLoadTime}ms on ${process.platform}`);
+      console.error(`[PERF] Config load took ${configLoadTime}ms on ${process.platform}`);
     }
 
     profiler.mark('config-migration-start');
@@ -218,11 +227,48 @@ export default class Application extends EventEmitter {
     } else {
       app.setAsDefaultProtocolClient('mailspring');
     }
+
+    // Print profiling summaries
+    profiler.summary();
+    if (process.env.ADVANCED_PROFILE === '1') {
+      // Print advanced profiler summary on shutdown
+      process.on('exit', () => {
+        advancedProfiler.printSummary();
+      });
+    }
+
+    // Create and store database access lock for use in database operations
+    if (process.env.ADVANCED_PROFILE === '1') {
+      this._databaseAccessLock = advancedProfiler.createMutex('database-access');
+    }
   }
 
   getMainWindow() {
     const win = this.windowManager.get(WindowManager.MAIN_WINDOW);
     return win ? win.browserWindow : null;
+  }
+
+  /**
+   * Execute database operation with profiling/locking
+   * Detects: lock contention, slow queries, race conditions
+   */
+  async executeWithDatabaseLock(operationName: string, fn: () => Promise<any>) {
+    const advancedProfiler = global.advancedProfiler || { trackAsyncOperation: (n, p) => p };
+
+    if (this._databaseAccessLock) {
+      await this._databaseAccessLock.lock();
+    }
+
+    try {
+      return await advancedProfiler.trackAsyncOperation(
+        `database.${operationName}`,
+        fn()
+      );
+    } finally {
+      if (this._databaseAccessLock) {
+        this._databaseAccessLock.unlock();
+      }
+    }
   }
 
   getAllWindowDimensions() {
