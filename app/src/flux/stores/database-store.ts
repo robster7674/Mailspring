@@ -21,11 +21,13 @@ const BASE_RETRY_LOCK_DELAY = 50;
 const MAX_RETRY_LOCK_DELAY = 500;
 const SLOW_QUERY_THRESHOLD_MS = 100;
 const SLOW_QUERY_REPORT_INTERVAL = 60000;
+const SLOW_QUERY_STATS_MAX_ENTRIES = 200;
+const QUERY_CACHE_MAX_ENTRIES = 500;
 
 type AgentResponse = { results: any[]; agentTime: number };
 type SQLString = string;
 type SQLValue = boolean | string | number;
-type QueryCacheEntry = { results: any[]; expiresAt: number };
+type QueryCacheEntry = { results: any[]; tables: string[] };
 
 function trimTo(str: string, size?: number) {
   const g = window || global || {};
@@ -39,6 +41,11 @@ function trimTo(str: string, size?: number) {
 
 function generateQueryCacheKey(query: SQLString, values: SQLValue[]): string {
   return `${query}|${JSON.stringify(values)}`;
+}
+
+function tablesReferencedBy(query: SQLString): string[] {
+  const matches = query.matchAll(/(?:FROM|JOIN)\s+`(\w+)`/g);
+  return Array.from(new Set(Array.from(matches, m => m[1])));
 }
 
 function handleUnrecoverableDatabaseError(
@@ -139,7 +146,7 @@ class DatabaseStore extends MailspringStore {
   _open = false;
   _waiting = [];
   _preparedStatementCache = new LRUCache<string, Sqlite3.Statement<any[]>>({ max: 500 });
-  _queryResultCache = new Map<string, QueryCacheEntry>();
+  _queryResultCache = new LRUCache<string, QueryCacheEntry>({ max: QUERY_CACHE_MAX_ENTRIES });
   _slowQueryStats = new Map<string, { count: number; totalMs: number; maxMs: number }>();
   _lastSlowQueryReport = 0;
   _databasePath = databasePath(AppEnv.getConfigDirPath(), AppEnv.inSpecMode());
@@ -246,7 +253,7 @@ class DatabaseStore extends MailspringStore {
       if (query.startsWith('SELECT')) {
         const cacheKey = generateQueryCacheKey(query, values);
         const cached = this._queryResultCache.get(cacheKey);
-        if (cached && cached.expiresAt > Date.now()) {
+        if (cached) {
           if (debugVerbose.enabled) {
             debugVerbose(`📦 Query cache hit: ${trimTo(query)}`);
           }
@@ -431,32 +438,50 @@ class DatabaseStore extends MailspringStore {
       return;
     }
     const cacheKey = generateQueryCacheKey(query, values);
+    const tables = tablesReferencedBy(query);
     const isContactQuery = query.includes('`Contact`') && query.includes('`email`');
     const isThreadQuery = query.includes('`Thread`') && query.includes('`ThreadCategory`');
     const ttl = isContactQuery ? 10000 : isThreadQuery ? 2000 : 5000;
-    this._queryResultCache.set(cacheKey, {
-      results,
-      expiresAt: Date.now() + ttl,
-    });
+    this._queryResultCache.set(cacheKey, { results, tables }, { ttl });
   }
 
-  _invalidateQueryCache() {
-    this._queryResultCache.clear();
+  // Only evicts cache entries whose query touched `objectClass` (a table name),
+  // rather than clearing everything. DatabaseStore.trigger() fires on every
+  // incoming sync-engine delta, which during active sync can be many times a
+  // second; a full clear there would defeat the cache almost entirely.
+  _invalidateQueryCache(objectClass: string) {
+    const staleKeys: string[] = [];
+    this._queryResultCache.forEach((entry, key) => {
+      if (entry.tables.includes(objectClass)) {
+        staleKeys.push(key);
+      }
+    });
+    for (const key of staleKeys) {
+      this._queryResultCache.delete(key);
+    }
   }
 
   _trackSlowQuery(query: SQLString, msec: number) {
     if (msec < SLOW_QUERY_THRESHOLD_MS) {
       return;
     }
-    const queryNormalized = query.replace(/\?/g, '?').substring(0, 100);
+    const queryNormalized = query.substring(0, 100);
     const stats = this._slowQueryStats.get(queryNormalized) || { count: 0, totalMs: 0, maxMs: 0 };
     stats.count += 1;
     stats.totalMs += msec;
     stats.maxMs = Math.max(stats.maxMs, msec);
     this._slowQueryStats.set(queryNormalized, stats);
 
+    // Bound the map regardless of dev mode - only the console report below is dev-only.
+    if (this._slowQueryStats.size > SLOW_QUERY_STATS_MAX_ENTRIES) {
+      this._reportSlowQueryStats();
+      this._slowQueryStats.clear();
+      this._lastSlowQueryReport = Date.now();
+      return;
+    }
+
     const now = Date.now();
-    if (now - this._lastSlowQueryReport > SLOW_QUERY_REPORT_INTERVAL && AppEnv.inDevMode()) {
+    if (now - this._lastSlowQueryReport > SLOW_QUERY_REPORT_INTERVAL) {
       this._reportSlowQueryStats();
       this._lastSlowQueryReport = now;
       this._slowQueryStats.clear();
@@ -464,11 +489,14 @@ class DatabaseStore extends MailspringStore {
   }
 
   _reportSlowQueryStats() {
+    if (!AppEnv.inDevMode() || !debugVerbose.enabled) {
+      return;
+    }
     const sorted = Array.from(this._slowQueryStats.entries())
       .sort((a, b) => b[1].maxMs - a[1].maxMs)
       .slice(0, 10);
 
-    if (sorted.length > 0 && debugVerbose.enabled) {
+    if (sorted.length > 0) {
       console.group('🐌 Top 10 Slowest Queries (last 60s)');
       for (const [query, stats] of sorted) {
         console.log(
@@ -480,7 +508,10 @@ class DatabaseStore extends MailspringStore {
   }
 
   trigger(...args: any[]) {
-    this._invalidateQueryCache();
+    const record = args[0];
+    if (record && typeof record.objectClass === 'string') {
+      this._invalidateQueryCache(record.objectClass);
+    }
     return super.trigger(...args);
   }
 
