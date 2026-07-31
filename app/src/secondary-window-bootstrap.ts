@@ -15,6 +15,9 @@
 // Extend the standard promise class a bit
 import './promise-extensions';
 
+import { bootstrapRendererProfiler } from './renderer-profiler-bootstrap';
+bootstrapRendererProfiler();
+
 import AppEnvClass from './app-env';
 window.AppEnv = new AppEnvClass();
 AppEnv.startSecondaryWindow();
