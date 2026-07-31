@@ -1,284 +1,103 @@
 # Performance Optimization Status
 
-**Date:** 2026-07-24  
-**Status:** Ready for coordinated testing
+**Last updated:** 2026-07-31
+**Status:** ✅ Merged, build-verified on Linux and macOS. Real-world performance impact **not yet measured** — see "What's Actually Verified" below.
 
 ---
 
-## Overview
+## Summary
 
-Two coordinated feature branches addressing database performance bottlenecks identified in profiler logs:
+Four pieces of work, across two repos, all reviewed and merged to `master`:
 
-| Repository | Branch | Status | Changes |
-|------------|--------|--------|---------|
-| Mailspring | `feature/database-optimization` | ✅ Ready | Query caching, monitoring, docs |
-| Mailspring-Sync | `feature/database-optimization` | ✅ Ready | Index optimization migration |
-| Mailspring-Sync submodule | Protected | ✅ Locked | `feature/performance-profiling` cannot change |
+| # | What | Repo | PR | Status |
+|---|------|------|-----|--------|
+| 1 | Performance profiler (event loop, wakelocks, locks, races) | Mailspring | [#2](https://github.com/robster7674/Mailspring/pull/2) | Merged |
+| 2 | Query result caching + slow query monitoring | Mailspring | [#4](https://github.com/robster7674/Mailspring/pull/4) | Merged |
+| 3 | V10 database index migration | Mailspring-Sync | [#1](https://github.com/robster7674/Mailspring-Sync/pull/1) | Merged |
+| 4 | Submodule → V10 migration | Mailspring | [#5](https://github.com/robster7674/Mailspring/pull/5) | Merged |
+| 5 | Linux CI: build mailsync from source | Mailspring | [#6](https://github.com/robster7674/Mailspring/pull/6) | Merged |
+| 6 | macOS build fix: libetpan DB detection | Mailspring-Sync | [#2](https://github.com/robster7674/Mailspring-Sync/pull/2) | Merged |
+| 7 | Submodule → macOS fix | Mailspring | [#7](https://github.com/robster7674/Mailspring/pull/7) | Merged |
 
----
-
-## Mailspring Changes (6 commits)
-
-### Implemented
-1. **Query Result Caching** (adaptive TTL)
-   - ThreadCategory: 2s (frequent updates)
-   - Contact: 10s (infrequent updates)
-   - Other: 5s (default)
-   - Auto-invalidated on data changes
-
-2. **Slow Query Monitoring**
-   - Automatic detection of queries >100ms
-   - Top 10 slowest queries reported every 60s
-   - Dev mode only (zero production overhead)
-
-3. **Documentation**
-   - PERFORMANCE_INVESTIGATION.md - Detailed bottleneck analysis
-   - PERFORMANCE_OPTIMIZATION_GUIDE.md - Developer reference
-   - COORDINATED_TESTING_GUIDE.md - Testing instructions
-
-### Files Modified
-- `app/src/flux/stores/database-store.ts` - Caching & monitoring implementation
-
-### Expected Impact (Mailspring only)
-- 50% reduction in repeated query execution
-- Cache hits: <5ms (vs 100-3500ms original)
-- Event loop blocks: Reduced when cache hits occur
+Original plan (see git history of this file) was to keep both repos on parallel `feature/database-optimization` branches and PR them together. That's obsolete — everything above shipped as separate, individually-reviewed PRs instead, several as direct fixes for bugs found during review.
 
 ---
 
-## Mailspring-Sync Changes (1 commit)
+## What Each Piece Actually Does
 
-### Implemented
-1. **V10 Database Migration**
-   - Index optimization for ThreadCategory queries
-   - Index reordering for query pattern: filter first, sort second
-   - MessageBody index optimization
-   - Contact lookup index explicit declaration
+### 1. Performance Profiler (`app/src/browser/performance-profiler.js`)
+- Detects event loop blocks (>16ms), long-running async ops ("wakelocks"), lock contention, and operations called suspiciously often
+- Dual mode: `production` (daily-driver, lenient thresholds) and `development` (verbose)
+- Enable: `ADVANCED_PROFILE=1 npm start`
+- See `PROFILING_GUIDE.md` / `PROFILING_QUICK_START.md` for full usage
 
-### Specifics
-```sql
--- Key optimization: Reorder ThreadCategory index
--- Old: (lastMessageReceivedTimestamp DESC, value, inAllMail, ...)
--- New: (value, inAllMail, lastMessageReceivedTimestamp DESC, ...)
+### 2. Query Result Caching (`app/src/flux/stores/database-store.ts`)
+- Caches `SELECT` results with type-specific TTL (Contact 10s, ThreadCategory 2s, other 5s)
+- Cache is an `LRUCache` (max 500 entries) — **not** a plain unbounded `Map`, which is what shipped before review caught it
+- Invalidation is **selective by table**, not a full clear on every change. `DatabaseStore.trigger()` fires on every incoming sync-engine delta (potentially many times/second during active sync); a full clear there would have defeated the cache almost entirely for exactly the high-volume users it's meant to help
+- Slow query stats (>100ms) are tracked and bounded (max 200 entries) regardless of dev/production mode
 
--- Old pattern: Sorts first, then filters (suboptimal)
--- New pattern: Filters first, sorts within filtered set (optimal)
-```
+### 3. V10 Database Index Migration (Mailspring-Sync `MailSync/constants.h`, `MailStore.cpp`)
+- Reorders `ThreadListCategoryIndex` / `ThreadListCategorySentIndex` for filter-then-sort query pattern (was sort-then-filter)
+- Reorders `MessageListThreadIndex`
+- Adds `MessageBodyIdIndex`, explicit `ContactLookupIndex`
+- Runs automatically via `mailsync --mode migrate` when `user_version < 10`
+- Verified idempotent (safe to run twice)
 
-### Files Modified
-- `MailSync/constants.h` - Added V10_SETUP_QUERIES
-- `MailSync/MailStore.cpp` - Added V10 migration execution, bumped CURRENT_VERSION to 10
-
-### Expected Impact (Mailspring-Sync)
-- ThreadCategory queries: 500-3500ms → 100-500ms (first), <50ms (cached)
-- Contact lookups: 130-150ms → 10-50ms
-- Event loop blocks: Consistent reduction
-- Migration runs automatically on database version upgrade
+### 4. Build Pipeline Fixes (discovered while verifying the above actually builds)
+- **Linux CI** (`build-linux.yaml`): never built `mailsync` from source at all — `npm run build` only copies a pre-existing binary. Fixed: recursive submodule checkout, added missing `liblzma-dev`, added an explicit mailsync build step
+- **macOS**: `xcodebuild` failed with ~20 compile errors in vendored `libetpan`. Root cause: macOS's system `db.h` defines `DB_VERSION_MAJOR >= 3` (fooling autoconf's compile-only detection) but only implements the ancient 1.85 BSD DB API — no `db_open`/`DBC`/cursor support. Fixed by explicitly disabling libetpan's unused Berkeley DB cache (`--disable-db`), matching what already happens correctly on Linux (no `db.h` present there at all)
+- `build-linux-arm64.yaml` has the identical CI gap as the Linux fix above — **not yet fixed**, flagged as a follow-up (couldn't validate without real ARM64 hardware)
 
 ---
 
-## How They Work Together
+## What's Actually Verified
 
-```
-Mailspring App
-  ├─ Queries DatabaseStore (TypeScript)
-  ├─ Caches results (5s default, adaptive TTL)
-  ├─ Sends SQL to mailsync process
-  │
-  └─ Mailspring-Sync (C++)
-     ├─ Receives SQL via JSON
-     ├─ Executes with optimized indices (V10)
-     ├─ Returns results
-     │
-     └─ SQLite Database
-        ├─ Uses optimized indices (filter→sort)
-        ├─ Returns results faster
-        └─ Handles concurrent reads with WAL
-```
+✅ **Verified, with reproducible tests:**
+- Profiler correctly detects and bounds all four metric types (event loop, wakelocks, locks, races) — manually load-tested
+- Query cache is bounded under load (2000 inserts → capped at 500) and selective invalidation preserves unrelated entries while correctly evicting matched ones
+- V10 migration runs cleanly, reaches `PRAGMA user_version = 10`, all five indices present with correct column order — tested on a fresh DB and confirmed idempotent
+- `mailsync` builds from source and passes the same functional test on **both** rob-dev (Linux) and BorBook (Intel Mac)
 
-**Result:**
-- First query after invalidation: Uses optimized indices (faster, but not cached)
-- Subsequent identical queries within TTL: Served from cache (very fast)
-- Operations causing changes: Automatic cache invalidation (data freshness maintained)
+❌ **Not yet verified — theoretical/expected only:**
+- The specific millisecond numbers in earlier drafts of this doc ("ThreadCategory: 1500-3500ms → 100-500ms", "Contact: 130-150ms → 10-50ms") were never actually measured against real usage. They're plausible given the index changes, but nobody has run before/after profiling on a real account yet.
+- Cache hit rate under real sync load — the selective-invalidation fix should help a lot here, but the actual hit rate with a real, syncing account is unmeasured.
+- Whether the V10 migration's one-time index rebuild causes a noticeable startup delay on a large real mailbox (flagged as a plausible risk in review, not measured).
 
----
-
-## Testing Workflow
-
-### Prerequisite: Both repos on feature branches
-
-```bash
-# Mailspring
-cd ~/git/robster7674/Mailspring
-git checkout feature/database-optimization
-
-# Mailspring-Sync submodule
-cd mailsync
-git remote add fork https://github.com/robster7674/mailspring-sync.git
-git fetch fork feature/database-optimization
-git checkout -b feature/database-optimization fork/feature/database-optimization
-cd ..
-git add mailsync
-git commit -m "Point mailsync to feature/database-optimization"
-```
-
-### Run Tests
-
-1. **Build & Start**
-   ```bash
-   npm install
-   npm start
-   ```
-   Watch for: "Optimizing database indices" message
-
-2. **Monitor Performance**
-   ```bash
-   DEBUG=app:RxDB:all npm start
-   ```
-   Look for:
-   - "📦 Query cache hit" messages
-   - "🐌 Top 10 Slowest Queries" reports every 60s
-   - Improved query times vs. before
-
-3. **Functional Testing**
-   - Navigate folders (Inbox, Sent, etc.)
-   - Compose emails (Contact lookups)
-   - Delete emails (cache invalidation)
-   - Search (query optimization)
-
-**See COORDINATED_TESTING_GUIDE.md for detailed instructions**
-
----
-
-## Before/After Metrics (Expected)
-
-### ThreadCategory Queries (Inbox loading)
-```
-Before: 1500-3500ms regularly (event loop blocks)
-After:  1st: 100-500ms (optimized indices)
-        2nd+: <50ms (cached, within 2s TTL)
-```
-
-### Contact Lookups (Composer, search)
-```
-Before: 130-150ms regularly (event loop blocks)
-After:  1st: 10-50ms (optimized indices)
-        2nd+: <5ms (cached, within 10s TTL)
-```
-
-### Event Loop Health
-```
-Before: 100-250ms blocks regularly (jank)
-After:  <100ms blocks 90% of time
-        Smooth UI during normal operations
-```
-
----
-
-## PR Strategy (Upstream)
-
-### Phase 1: Mailspring-Sync PR (has no dependencies)
-- Base: `Foundry376/Mailspring-Sync` master
-- Branch: `feature/database-optimization`
-- Description: V10 migration with index optimization
-- No breaking changes, automatic migration
-
-**Why first:** Mailspring depends on Sync. If Sync PR merges first, Mailspring PR can reference it.
-
-### Phase 2: Mailspring PR (depends on Sync)
-- Base: `mailspring/mailspring` master
-- Branch: `feature/database-optimization`
-- Update submodule to point to merged Sync commit
-- Include: Caching, monitoring, all documentation
-- Reference: Sync PR number for context
-
-**Timing:** After Sync PR is merged (or reference Sync PR in description)
-
----
-
-## Success Criteria
-
-Testing passes when all of these are true:
-
-- ✅ Mailspring-Sync V10 migration runs without errors
-- ✅ Indices created and used by query planner
-- ✅ ThreadCategory queries: <500ms (vs 1500-3500ms before)
-- ✅ Contact queries: <50ms (vs 130-150ms before)  
-- ✅ Cache hit rate: 50%+ for repeated operations
-- ✅ Event loop blocks: <100ms, 90% of the time
-- ✅ No data corruption or loss
-- ✅ All normal operations work
-- ✅ Performance persists across app restarts
-
----
-
-## File Manifest
-
-### Mailspring (`feature/database-optimization`)
-```
-PERFORMANCE_INVESTIGATION.md          - Detailed analysis of bottlenecks
-PERFORMANCE_OPTIMIZATION_GUIDE.md     - Developer reference for caching behavior
-COORDINATED_TESTING_GUIDE.md          - Testing instructions for both repos
-OPTIMIZATION_STATUS.md                - This file
-app/src/flux/stores/database-store.ts - Query caching & monitoring implementation
-```
-
-### Mailspring-Sync (`feature/database-optimization`)
-```
-MailSync/constants.h                  - V10_SETUP_QUERIES with optimized indices
-MailSync/MailStore.cpp                - V10 migration execution, CURRENT_VERSION=10
-```
-
----
-
-## Rollback Plan
-
-If issues arise during testing:
-
-```bash
-# Mailspring rollback
-git checkout master
-rm -rf node_modules
-npm install
-
-# Mailspring-Sync rollback
-cd mailsync
-git checkout master
-cd ..
-git add mailsync
-git commit -m "Revert mailsync"
-
-# Database rollback (if needed)
-rm ~/.config/Mailspring/edgehill.db
-# App will recreate on next start
-```
+**This is the next real step** — see below.
 
 ---
 
 ## Next Steps
 
-1. **Build & Test** (See COORDINATED_TESTING_GUIDE.md)
-   - Point Mailspring to Sync feature branch
-   - Build both repos
-   - Run functional tests
-   - Measure performance improvements
-
-2. **Validate**
-   - Confirm indices are used
-   - Measure actual vs expected improvements
-   - Check for edge cases or regressions
-
-3. **Upstream**
-   - Create Sync PR first
-   - Create Mailspring PR after (reference Sync PR)
-   - Include performance metrics in PR descriptions
+1. **Capture real logs.** Run the built app against real account data with the profiler active and watch for actual event loop blocks / slow queries during normal use (message list scrolling, folder switching, search, composing).
+2. **Compare before/after**, if possible — ideally by testing against a backup of the pre-migration database vs. the migrated one, to get real numbers instead of the estimates above.
+3. **Update this doc** (or a new one) with real measurements once captured, replacing the "expected" numbers.
+4. `build-linux-arm64.yaml` fix, if ARM64 CI matters for releases.
 
 ---
 
-## Contact & Questions
+## Rollback
 
-All documentation and implementation details are in this branch. See:
-- PERFORMANCE_INVESTIGATION.md for why changes were made
-- PERFORMANCE_OPTIMIZATION_GUIDE.md for how caching works
-- COORDINATED_TESTING_GUIDE.md for how to test everything
-- Git logs for implementation details
+```bash
+# Mailspring
+git log --oneline -10   # find the commit before these merges
+git revert <merge-commit-sha>
+
+# Mailspring-Sync submodule
+cd mailsync
+git checkout <previous-sha>
+cd ..
+git add mailsync && git commit -m "Revert mailsync to pre-V10"
+
+# Database (only if actually corrupted — the migration is additive/idempotent,
+# this should not be necessary in normal circumstances)
+# back up first: cp -R ~/Library/Application\ Support/Mailspring ~/Desktop/mailspring-backup
+```
+
+---
+
+## Related Docs
+
+- `PROFILING_GUIDE.md` / `PROFILING_QUICK_START.md` — how to use the profiler (custom + CDP)
+- `COORDINATED_TESTING_GUIDE.md`, `PERFORMANCE_INVESTIGATION.md`, `PERFORMANCE_OPTIMIZATION_GUIDE.md` — written before this round of review/fixes; describe the original plan and analysis, not all details reflect the final shipped implementation (e.g. cache is now `LRUCache` + selective invalidation, not the plain `Map` + full-clear described in early drafts). Useful for the "why" behind the work, treat specifics with the same caution as the old numbers above.
