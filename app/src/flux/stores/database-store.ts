@@ -45,7 +45,7 @@ function generateQueryCacheKey(query: SQLString, values: SQLValue[]): string {
 
 function tablesReferencedBy(query: SQLString): string[] {
   const matches = query.matchAll(/(?:FROM|JOIN)\s+`(\w+)`/g);
-  return Array.from(new Set(Array.from(matches, m => m[1])));
+  return Array.from(new Set(Array.from(matches, (m) => m[1])));
 }
 
 function handleUnrecoverableDatabaseError(

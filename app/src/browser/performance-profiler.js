@@ -4,9 +4,15 @@
  */
 
 class PerformanceProfiler {
-  constructor(enabled = false, mode = 'production') {
+  constructor(enabled = false, mode = 'production', options = {}) {
     this.enabled = enabled;
     this.mode = mode; // 'production' = daily driver, 'development' = detailed
+    this.processLabel = options.processLabel || 'main';
+    // Optional (level, message) => void override. Lets the renderer process
+    // route alerts over IPC to the main process's console/log file instead
+    // of into its own DevTools console, where they'd otherwise be invisible
+    // to anyone just watching the terminal.
+    this.logSink = options.logSink || null;
     this.metrics = {
       eventLoopBlocks: [],
       wakelocks: new Map(),
@@ -37,6 +43,15 @@ class PerformanceProfiler {
     }
   }
 
+  _alert(level, message) {
+    const tagged = message.replace('[PERF]', `[PERF:${this.processLabel}]`);
+    if (this.logSink) {
+      this.logSink(level, tagged);
+    } else {
+      console[level](tagged);
+    }
+  }
+
   /**
    * Detect event loop blocking (main thread congestion)
    */
@@ -57,7 +72,7 @@ class PerformanceProfiler {
 
         // Only warn in development mode or for serious blocks
         if (this.verbose || delta > this.thresholds.eventLoopWarnMs) {
-          console.warn(`[PERF] Event loop blocked for ${delta}ms (${this.mode})`);
+          this._alert('warn', `[PERF] Event loop blocked for ${delta}ms (${this.mode})`);
         }
       }
       lastCheck = now;
@@ -98,7 +113,8 @@ class PerformanceProfiler {
 
           // Only warn for serious wakelocks in production mode
           if (this.verbose || duration > this.thresholds.asyncTimeoutMs * 2) {
-            console.warn(
+            this._alert(
+              'warn',
               `[PERF] Async operation "${name}" took ${duration}ms (${this.mode})`
             );
           }
@@ -121,7 +137,8 @@ class PerformanceProfiler {
 
         // Always warn on errors
         if (this.verbose) {
-          console.error(
+          this._alert(
+            'error',
             `[PERF] Async operation "${name}" failed after ${duration}ms: ${error.message}`
           );
         }
@@ -155,7 +172,7 @@ class PerformanceProfiler {
           waiters.push(lockId);
           // Only warn on serious contention
           if (this.verbose || waiters.length > 2) {
-            console.warn(`[PERF] Lock "${name}" contended (${waiters.length} waiters)`);
+            this._alert('warn', `[PERF] Lock "${name}" contended (${waiters.length} waiters)`);
           }
         }
 
@@ -182,7 +199,7 @@ class PerformanceProfiler {
 
           // Only warn for serious wait times
           if (this.verbose || waitTime > this.thresholds.lockWaitMs * 2) {
-            console.warn(`[PERF] Lock "${name}" wait time: ${waitTime}ms`);
+            this._alert('warn', `[PERF] Lock "${name}" wait time: ${waitTime}ms`);
           }
         }
 
@@ -221,7 +238,8 @@ class PerformanceProfiler {
     );
 
     if (recent.length > 0) {
-      console.warn(
+      this._alert(
+        'warn',
         `[PERF] Potential race: "${operationName}" called ${recent.length + 1} times in 1s`
       );
     }
@@ -478,9 +496,9 @@ class PerformanceProfiler {
 // Export singleton
 let globalProfiler = null;
 
-function initAdvancedProfiler(enabled = false, mode = 'production') {
+function initAdvancedProfiler(enabled = false, mode = 'production', options = {}) {
   if (!globalProfiler) {
-    globalProfiler = new PerformanceProfiler(enabled, mode);
+    globalProfiler = new PerformanceProfiler(enabled, mode, options);
   }
   return globalProfiler;
 }

@@ -959,6 +959,22 @@ export default class Application extends EventEmitter {
       event.returnValue = true;
     });
 
+    // Renderer processes run the actual UI (message list, composer, etc.) in a
+    // separate event loop from the main process. The advanced profiler can run
+    // there too, but console output from the renderer only shows up in that
+    // window's DevTools console, invisible to anyone just watching the
+    // terminal. Forward it here so renderer and main process alerts land in
+    // the same place, distinguishable by their [PERF:main]/[PERF:renderer] tag.
+    ipcMain.on(
+      'renderer-perf-alert',
+      (event, params: { level?: string; message?: string } = {}) => {
+        const level = params.level === 'error' ? 'error' : 'warn';
+        if (typeof params.message === 'string') {
+          console[level](params.message);
+        }
+      }
+    );
+
     ipcMain.on('resize-window', (event, params) => {
       const sourceWindow = BrowserWindow.fromWebContents(event.sender);
       if (!sourceWindow) return;
