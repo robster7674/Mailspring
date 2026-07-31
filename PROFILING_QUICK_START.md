@@ -15,17 +15,26 @@ PROFILE_STARTUP=1 ADVANCED_PROFILE=1 npm start
 
 ## What You'll See
 
+The profiler now runs in **both** the main process and every renderer window
+(message list, composer, etc.), not just the main process. Alerts are tagged
+`[PERF:main]` or `[PERF:renderer]` so you can tell which event loop actually
+blocked - most UI jank (scrolling, typing, rendering) shows up as
+`[PERF:renderer]`, since that's where the UI thread actually lives.
+
 ```
 [PROFILE] T+0ms: startup-profiler-initialized
 [PROFILE] T+3ms (+3ms): main.js-loaded
 [PROFILE] T+50ms (+47ms): app-ready-event-fired
 ...
 
-[PERF] Event loop blocked for 120ms
-[PERF] Async operation "mailsync.migrate" took 1234ms  ← Potential wakelock
-[PERF] Lock "database-access" contended (3 waiters)   ← Lock contention
-[PERF] Potential race: "render-view" called 8 times in 1s
+[PERF:renderer] Event loop blocked for 120ms
+[PERF:main] Async operation "mailsync.migrate" took 1234ms  ← Potential wakelock
+[PERF:main] Lock "database-access" contended (3 waiters)   ← Lock contention
+[PERF:renderer] Potential race: "render-view" called 8 times in 1s
 ```
+
+(Examples elsewhere in this guide showing bare `[PERF]` are illustrating the
+concept, not exact output - real output always includes the `:main`/`:renderer` tag.)
 
 ---
 

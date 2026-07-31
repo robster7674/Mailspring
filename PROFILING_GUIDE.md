@@ -399,18 +399,27 @@ for (const scenario of Object.keys(current.results)) {
 
 ### Session 1: Quick Diagnosis (Custom Profiler)
 ```bash
-# 1. Run with custom profiler
+# 1. Run with custom profiler - captures both main process AND renderer
+#    windows (message list, composer). Alerts are tagged [PERF:main] /
+#    [PERF:renderer] so you know which event loop actually blocked.
 ADVANCED_PROFILE=1 npm start
 
 # 2. Reproduce issue (e.g., delete message, scroll list)
 # Terminal shows real-time alerts:
-# [PERF] Event loop blocked for 145ms
-# [PERF] Lock "database-access" contended (2 waiters)
-# [PERF] Potential race: "select-message" called 8 times in 1s
+# [PERF:renderer] Event loop blocked for 145ms
+# [PERF:main] Lock "database-access" contended (2 waiters)
+# [PERF:renderer] Potential race: "select-message" called 8 times in 1s
 
 # 3. Summary on exit shows high-level metrics
 # Tells you: is it event loop? lock contention? race condition?
 ```
+
+**Capturing a clean, filterable log** instead of scrolling terminal output:
+```bash
+npm start 2>&1 | tee ~/Desktop/mailspring-$(date +%Y%m%d-%H%M%S).log | grep --line-buffered '\[PERF'
+```
+Shows only `[PERF:*]` lines live, while the full untouched log (including any
+startup errors) is saved to a timestamped file for later reference.
 
 ### Session 2: Startup Performance (Startup Profiler + CDP)
 ```bash
