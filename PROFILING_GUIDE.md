@@ -421,6 +421,14 @@ npm start 2>&1 | tee ~/Desktop/mailspring-$(date +%Y%m%d-%H%M%S).log | grep --li
 Shows only `[PERF:*]` lines live, while the full untouched log (including any
 startup errors) is saved to a timestamped file for later reference.
 
+**Summarizing a captured log** (histogram + p50/p90/p95/p99/max per process,
+so you can tell whether a change actually moved P99 instead of eyeballing it):
+```bash
+npm run perf:histogram -- ~/Desktop/mailspring-20260731-120000.log
+# or pipe live:
+npm start 2>&1 | node scripts/perf-histogram.js
+```
+
 ### Session 2: Startup Performance (Startup Profiler + CDP)
 ```bash
 # 1. Quick timeline with startup profiler

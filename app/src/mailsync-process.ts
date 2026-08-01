@@ -9,6 +9,7 @@ import path from 'path';
 import os from 'os';
 import { EventEmitter } from 'events';
 import fs from 'fs';
+import createDebug from 'debug';
 import { localized } from './intl';
 import { IIdentity, Account } from 'mailspring-exports';
 
@@ -16,6 +17,13 @@ import {
   GMAIL_CLIENT_ID,
   GMAIL_CLIENT_SECRET,
 } from '../internal_packages/onboarding/lib/onboarding-constants';
+
+// Gated behind DEBUG=app:mailsync-process:send: logging the full task
+// (draft body, attachments, id arrays) here used to run unconditionally,
+// and on Linux a piped stdout write is synchronous (see browser/main.js),
+// so every queued task - send, delete, mark-read, etc. - could block the
+// event loop for as long as formatting+flushing that object took.
+const debugSend = createDebug('app:mailsync-process:send');
 
 let Utils = null;
 
@@ -457,8 +465,10 @@ export class MailsyncProcess extends EventEmitter {
     if (!Utils) {
       Utils = require('mailspring-exports').Utils;
     }
-    console.log(`Sending to mailsync ${this.account ? this.account.id : '?'}`, json);
     const msg = `${JSON.stringify(json)}\n`;
+    if (debugSend.enabled) {
+      debugSend(`Sending to mailsync ${this.account ? this.account.id : '?'}: ${json.type}`);
+    }
     try {
       this._proc.stdin.write(msg, 'utf-8');
     } catch (error) {
