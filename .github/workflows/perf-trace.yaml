@@ -19,7 +19,15 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
+      # submodules: recursive matters beyond just getting mailsync's source -
+      # scripts/postinstall.js only downloads the prebuilt mailsync binary
+      # from S3 when ./mailsync/build.sh is absent. Without the submodule
+      # checked out, npm ci hard-fails in CI if no prebuilt binary happens to
+      # be published for this exact submodule commit (which is common, since
+      # publishing there is a manual release step, not automatic).
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install system dependencies
         env:
@@ -49,7 +57,9 @@ jobs:
         run: npm run benchmark:compile
 
       - name: Run script
-        run: dbus-launch --exit-with-session xvfb-run -a node "benchmarks/dist/${{ github.event.inputs.script }}"
+        env:
+          TRACE_SCRIPT: ${{ github.event.inputs.script }}
+        run: dbus-launch --exit-with-session xvfb-run -a node "benchmarks/dist/$TRACE_SCRIPT"
         timeout-minutes: 15
 
       - name: Upload results
