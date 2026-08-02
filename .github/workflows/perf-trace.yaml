@@ -51,6 +51,16 @@ jobs:
       - name: Compile benchmarks/tracing scripts
         run: npm run benchmark:compile
 
+      # First macOS run: electron.launch() itself succeeded (unlike every
+      # Linux attempt), but firstWindow() then timed out after 90s with the
+      # app process alive the whole time and completely silent - not even
+      # Electron's own earliest startup logging appeared. That signature
+      # (alive, totally silent, indefinite hang) is the standard symptom of
+      # Gatekeeper doing a slow/blocked quarantine check on a freshly
+      # git-checked-out, unsigned Electron binary.
+      - name: Clear macOS quarantine attribute on Electron binary
+        run: xattr -cr node_modules/electron/dist/Electron.app || true
+
       - name: Run script
         env:
           TRACE_SCRIPT: ${{ github.event.inputs.script }}
