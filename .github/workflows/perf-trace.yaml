@@ -44,6 +44,17 @@ jobs:
             libatk-bridge2.0-0 \
             libgtk-3-0
 
+      # First real run got the app loading ("App load time: 2033ms") but a
+      # child process was then killed after 15s with no IPC connection
+      # established - even with --no-sandbox --disable-gpu on the Electron
+      # side. That symptom (main process fine, child process spawns but
+      # never completes its connection) matches a known current GitHub
+      # Actions runner-image issue: AppArmor restricting unprivileged user
+      # namespaces, which blocks Chromium/Electron's child-process spawning
+      # regardless of Chromium's own --no-sandbox flag.
+      - name: Allow unprivileged user namespaces (Chromium child-process spawning)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
