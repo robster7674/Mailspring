@@ -25,11 +25,27 @@ async function main() {
   console.log('Launching Electron via Playwright...');
   // Without executablePath, Playwright downloads/uses its own default
   // Electron build instead of this repo's pinned node_modules/electron -
-  // wrong binary for testing this app. --no-sandbox is defensive for CI
-  // runners/containers where the setuid sandbox helper commonly isn't usable.
+  // wrong binary for testing this app. First CI attempt with just
+  // --no-sandbox got past app load ("App load time: 2033ms") but then a
+  // child process was killed 15s in with no mojo/IPC connection - classic
+  // symptom of the GPU process hanging/crashing in a DRM-less container
+  // (confirmed no GPU: "drmGetDevices2() has not found any devices" in that
+  // run's log). --disable-gpu avoids the compositor pipeline depending on
+  // GPU process startup at all; --disable-dev-shm-usage/--disable-software-
+  // rasterizer are the other standard fixes for this exact failure mode in
+  // containerized Electron/Chromium CI.
   const app = await electron.launch({
     executablePath: require('electron') as unknown as string,
-    args: [appPath, '--enable-logging', '--dev', '--no-sandbox'],
+    timeout: 60000,
+    args: [
+      appPath,
+      '--enable-logging',
+      '--dev',
+      '--no-sandbox',
+      '--disable-gpu',
+      '--disable-dev-shm-usage',
+      '--disable-software-rasterizer',
+    ],
     env: { ...process.env, MAILSPRING_CONFIG_DIR: configDirPath } as any,
   });
 
