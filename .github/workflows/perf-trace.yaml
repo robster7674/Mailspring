@@ -3,9 +3,19 @@ name: Performance Trace
 # On-demand runner for the benchmarks/ harness and tracing spikes (see
 # /home/rob/.claude/plans/humming-growing-beacon.md). workflow_dispatch only -
 # deliberately not on push/PR, so it doesn't become a required check like
-# test.yaml. Reuses test.yaml's xvfb/dbus setup, which is the existing proof
-# that this app launches headlessly on a plain ubuntu-22.04 runner via a
-# fresh `npm ci` (unlike a dev sandbox with a stale local Electron install).
+# test.yaml.
+#
+# Runs on macos-latest, not a Linux runner. Four attempts on ubuntu-22.04 all
+# showed the same failure: the main process loads fine, but a child process
+# (renderer) is killed 15s in, never having established its IPC connection -
+# unaffected by --no-sandbox, --disable-gpu (+friends), --no-zygote, or
+# relaxing the AppArmor unprivileged-userns restriction at the runner level.
+# GitHub-hosted macOS runners are real VMs, not Linux containers, so they
+# sidestep this whole class of namespace-based Chromium sandboxing problem.
+# (Also worth knowing: unlike what an earlier version of this comment
+# claimed, test.yaml's `npm test` has never actually gotten past `npm ci` in
+# any of its visible run history - it wasn't real proof that Electron
+# launches headlessly here. Don't cite it as such again without checking.)
 on:
   workflow_dispatch:
     inputs:
@@ -16,7 +26,7 @@ on:
 
 jobs:
   trace:
-    runs-on: ubuntu-22.04
+    runs-on: macos-latest
 
     steps:
       # submodules: recursive matters beyond just getting mailsync's source -
@@ -28,32 +38,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Install system dependencies
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y \
-            xvfb \
-            dbus-x11 \
-            libgbm1 \
-            libnss3 \
-            libasound2 \
-            libatk1.0-0 \
-            libatk-bridge2.0-0 \
-            libgtk-3-0
-
-      # First real run got the app loading ("App load time: 2033ms") but a
-      # child process was then killed after 15s with no IPC connection
-      # established - even with --no-sandbox --disable-gpu on the Electron
-      # side. That symptom (main process fine, child process spawns but
-      # never completes its connection) matches a known current GitHub
-      # Actions runner-image issue: AppArmor restricting unprivileged user
-      # namespaces, which blocks Chromium/Electron's child-process spawning
-      # regardless of Chromium's own --no-sandbox flag.
-      - name: Allow unprivileged user namespaces (Chromium child-process spawning)
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -70,7 +54,7 @@ jobs:
       - name: Run script
         env:
           TRACE_SCRIPT: ${{ github.event.inputs.script }}
-        run: dbus-launch --exit-with-session xvfb-run -a node "benchmarks/dist/$TRACE_SCRIPT"
+        run: node "benchmarks/dist/$TRACE_SCRIPT"
         timeout-minutes: 15
 
       - name: Upload results
