@@ -25,15 +25,19 @@ async function main() {
   console.log('Launching Electron via Playwright...');
   // Without executablePath, Playwright downloads/uses its own default
   // Electron build instead of this repo's pinned node_modules/electron -
-  // wrong binary for testing this app. First CI attempt with just
-  // --no-sandbox got past app load ("App load time: 2033ms") but then a
-  // child process was killed 15s in with no mojo/IPC connection - classic
-  // symptom of the GPU process hanging/crashing in a DRM-less container
-  // (confirmed no GPU: "drmGetDevices2() has not found any devices" in that
-  // run's log). --disable-gpu avoids the compositor pipeline depending on
-  // GPU process startup at all; --disable-dev-shm-usage/--disable-software-
-  // rasterizer are the other standard fixes for this exact failure mode in
-  // containerized Electron/Chromium CI.
+  // wrong binary for testing this app. Three CI attempts so far all show the
+  // exact same signature: main process loads fine ("App load time: Nms",
+  // i.e. Application.start() returns), then a *child* process (renderer,
+  // per "App load time" firing before window content finishes loading) gets
+  // killed 15s later having never established its IPC connection -
+  // "Terminating current process after 15 seconds with no connection"
+  // (content/child_thread_impl.cc:908). --no-sandbox, --disable-gpu (+
+  // friends), and relaxing the AppArmor unprivileged-userns restriction in
+  // the workflow itself none changed this. --no-zygote disables Chromium's
+  // zygote-based process forking (which itself depends on namespace clone()
+  // calls) in favor of spawning child processes directly - the next most
+  // likely culprit for exactly this "child spawns, never connects" pattern
+  // in a restricted-namespace container.
   const app = await electron.launch({
     executablePath: require('electron') as unknown as string,
     timeout: 60000,
@@ -42,6 +46,7 @@ async function main() {
       '--enable-logging',
       '--dev',
       '--no-sandbox',
+      '--no-zygote',
       '--disable-gpu',
       '--disable-dev-shm-usage',
       '--disable-software-rasterizer',
