@@ -39,6 +39,24 @@ jobs:
         with:
           submodules: recursive
 
+      # submodules: recursive avoided the earlier npm-ci S3-download failure,
+      # but its side effect is that postinstall.js then skips downloading a
+      # prebuilt mailsync binary entirely (since ./mailsync/build.sh now
+      # exists) - and we never build one either. The app's own error path
+      # for a missing mailsync binary is a *synchronous* dialog.showMessageBoxSync
+      # (application.ts ~line 126) waiting for a button click that never
+      # comes headlessly - explains every symptom seen so far: process alive,
+      # frozen, zero output, no window, CDP evals hanging. The S3-prebuilt
+      # path returns 403 for this submodule commit on macOS too (checked
+      # directly), so downloading isn't an option - build it for real instead,
+      # same as build-linux.yaml does for Linux. build.sh's macOS path is a
+      # plain xcodebuild invocation that places the binary directly at
+      # app/mailsync where the app expects it.
+      - name: Build mailsync (C++ sync engine)
+        run: |
+          gem install xcpretty
+          bash mailsync/build.sh
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
