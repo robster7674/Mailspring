@@ -52,12 +52,49 @@ async function main() {
     console.log(`App process exited early: code=${code} signal=${signal}`)
   );
 
+  // electron.launch() succeeding means Playwright's own CDP connection to the
+  // app IS working - so app.windows()/the 'window' event are CDP-backed and
+  // don't depend on process stdout piping at all. If a window shows up here
+  // but firstWindow() still times out, that's a Playwright detection issue,
+  // not an app issue. If nothing ever shows up here either, the app itself
+  // never creates a window.
+  app.on('window', async page => {
+    console.log(`[CDP] 'window' event fired: url=${page.url()}`);
+  });
+  app.context().on('page', async page => {
+    console.log(`[CDP] context 'page' event fired: url=${page.url()}`);
+  });
+
   const windowWaitStart = Date.now();
-  const stillWaiting = setInterval(() => {
+  const stillWaiting = setInterval(async () => {
+    const known = app.windows();
     console.log(
-      `Still waiting for a window after ${Date.now() - windowWaitStart}ms ` +
-        `(process alive: ${proc.exitCode === null})`
+      `Still waiting after ${Date.now() - windowWaitStart}ms ` +
+        `(process alive: ${proc.exitCode === null}, ` +
+        `app.windows().length=${known.length}${known.length ? ': ' + known.map(w => w.url()).join(', ') : ''})`
     );
+    // Ask the main process directly via CDP eval, bypassing Playwright's own
+    // page-target detection entirely - tells us if Electron itself thinks it
+    // has created any windows, independent of whether Playwright noticed.
+    try {
+      const info = await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows().map(w => ({
+          id: w.id,
+          title: (() => {
+            try {
+              return w.getTitle();
+            } catch {
+              return '(error reading title)';
+            }
+          })(),
+          isDestroyed: w.isDestroyed(),
+          isVisible: w.isVisible(),
+        }))
+      );
+      console.log(`  BrowserWindow.getAllWindows() via CDP eval: ${JSON.stringify(info)}`);
+    } catch (err) {
+      console.log(`  BrowserWindow.getAllWindows() via CDP eval FAILED: ${err}`);
+    }
   }, 10000);
 
   let window;
