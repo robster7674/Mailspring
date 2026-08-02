@@ -1,0 +1,65 @@
+name: Performance Trace
+
+# On-demand runner for the benchmarks/ harness and tracing spikes (see
+# /home/rob/.claude/plans/humming-growing-beacon.md). workflow_dispatch only -
+# deliberately not on push/PR, so it doesn't become a required check like
+# test.yaml. Reuses test.yaml's xvfb/dbus setup, which is the existing proof
+# that this app launches headlessly on a plain ubuntu-22.04 runner via a
+# fresh `npm ci` (unlike a dev sandbox with a stale local Electron install).
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: 'Compiled JS entry point to run, relative to benchmarks/dist/'
+        required: false
+        default: 'spikes/phase0-spike.js'
+
+jobs:
+  trace:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            xvfb \
+            dbus-x11 \
+            libgbm1 \
+            libnss3 \
+            libasound2 \
+            libatk1.0-0 \
+            libatk-bridge2.0-0 \
+            libgtk-3-0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile benchmarks/tracing scripts
+        run: npm run benchmark:compile
+
+      - name: Run script
+        env:
+          TRACE_SCRIPT: ${{ github.event.inputs.script }}
+        run: dbus-launch --exit-with-session xvfb-run -a node "benchmarks/dist/$TRACE_SCRIPT"
+        timeout-minutes: 15
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-trace-results-${{ github.run_id }}
+          path: |
+            benchmarks/results/**
+            benchmarks/dist/results/**
+          if-no-files-found: ignore
