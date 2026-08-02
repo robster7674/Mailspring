@@ -25,40 +25,47 @@ async function main() {
   console.log('Launching Electron via Playwright...');
   // Without executablePath, Playwright downloads/uses its own default
   // Electron build instead of this repo's pinned node_modules/electron -
-  // wrong binary for testing this app. Three CI attempts so far all show the
-  // exact same signature: main process loads fine ("App load time: Nms",
-  // i.e. Application.start() returns), then a *child* process (renderer,
-  // per "App load time" firing before window content finishes loading) gets
-  // killed 15s later having never established its IPC connection -
-  // "Terminating current process after 15 seconds with no connection"
-  // (content/child_thread_impl.cc:908). --no-sandbox, --disable-gpu (+
-  // friends), and relaxing the AppArmor unprivileged-userns restriction in
-  // the workflow itself none changed this. --no-zygote disables Chromium's
-  // zygote-based process forking (which itself depends on namespace clone()
-  // calls) in favor of spawning child processes directly - the next most
-  // likely culprit for exactly this "child spawns, never connects" pattern
-  // in a restricted-namespace container.
+  // wrong binary for testing this app.
+  //
+  // The --no-sandbox/--disable-gpu/--no-zygote flags below were added while
+  // chasing a Linux-only failure (child process killed 15s in, never
+  // establishing its IPC connection - see git history of this file). That
+  // was fixed by switching CI to macos-latest instead, not by any of these
+  // flags, which is why they're now gated to Linux only - no reason to
+  // carry Linux-container workarounds onto a real desktop OS.
+  const linuxOnlyArgs = process.platform === 'linux'
+    ? ['--no-sandbox', '--no-zygote', '--disable-gpu', '--disable-dev-shm-usage', '--disable-software-rasterizer']
+    : [];
+
   const app = await electron.launch({
     executablePath: require('electron') as unknown as string,
     timeout: 60000,
-    args: [
-      appPath,
-      '--enable-logging',
-      '--dev',
-      '--no-sandbox',
-      '--no-zygote',
-      '--disable-gpu',
-      '--disable-dev-shm-usage',
-      '--disable-software-rasterizer',
-    ],
+    args: [appPath, '--enable-logging', '--dev', ...linuxOnlyArgs],
     env: { ...process.env, MAILSPRING_CONFIG_DIR: configDirPath } as any,
   });
 
   const proc = app.process();
+  console.log(`App process pid=${proc.pid}, stdout=${!!proc.stdout}, stderr=${!!proc.stderr}`);
   proc.stdout?.on('data', (d: Buffer) => process.stdout.write(`[app stdout] ${d}`));
   proc.stderr?.on('data', (d: Buffer) => process.stderr.write(`[app stderr] ${d}`));
+  proc.on('exit', (code, signal) =>
+    console.log(`App process exited early: code=${code} signal=${signal}`)
+  );
 
-  const window = await app.firstWindow({ timeout: 60000 });
+  const windowWaitStart = Date.now();
+  const stillWaiting = setInterval(() => {
+    console.log(
+      `Still waiting for a window after ${Date.now() - windowWaitStart}ms ` +
+        `(process alive: ${proc.exitCode === null})`
+    );
+  }, 10000);
+
+  let window;
+  try {
+    window = await app.firstWindow({ timeout: 90000 });
+  } finally {
+    clearInterval(stillWaiting);
+  }
   console.log('Got first window:', await window.title().catch(() => '(no title yet)'));
 
   // Snapshot node_trace.*.log files that might already exist, so we can tell
