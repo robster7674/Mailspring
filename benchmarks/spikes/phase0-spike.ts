@@ -23,12 +23,21 @@ async function main() {
   fs.mkdirSync(configDirPath, { recursive: true });
 
   console.log('Launching Electron via Playwright...');
+  // Without executablePath, Playwright downloads/uses its own default
+  // Electron build instead of this repo's pinned node_modules/electron -
+  // wrong binary for testing this app. --no-sandbox is defensive for CI
+  // runners/containers where the setuid sandbox helper commonly isn't usable.
   const app = await electron.launch({
-    args: [appPath, '--enable-logging', '--dev'],
+    executablePath: require('electron') as unknown as string,
+    args: [appPath, '--enable-logging', '--dev', '--no-sandbox'],
     env: { ...process.env, MAILSPRING_CONFIG_DIR: configDirPath } as any,
   });
 
-  const window = await app.firstWindow();
+  const proc = app.process();
+  proc.stdout?.on('data', (d: Buffer) => process.stdout.write(`[app stdout] ${d}`));
+  proc.stderr?.on('data', (d: Buffer) => process.stderr.write(`[app stderr] ${d}`));
+
+  const window = await app.firstWindow({ timeout: 60000 });
   console.log('Got first window:', await window.title().catch(() => '(no title yet)'));
 
   // Snapshot node_trace.*.log files that might already exist, so we can tell
