@@ -10,30 +10,6 @@ async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function sendCDPCommand(conn: any, method: string, params: any = {}): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const id = conn.messageId++;
-    const message = JSON.stringify({ id, method, params });
-    const timeout = setTimeout(() => reject(new Error(`CDP timeout: ${method}`)), 5000);
-
-    let messageHandler: ((data: string) => void) | null = (data: string) => {
-      try {
-        const response = JSON.parse(data.toString());
-        if (response.id === id) {
-          clearTimeout(timeout);
-          conn.ws.removeListener('message', messageHandler!);
-          messageHandler = null;
-          if (response.error) reject(new Error(`CDP error: ${response.error.message}`));
-          else resolve(response.result);
-        }
-      } catch (e) {}
-    };
-
-    conn.ws.on('message', messageHandler);
-    conn.ws.send(message);
-  });
-}
-
 export async function runSearchScenario(options: any = {}) {
   const { threadCount = 100, runs = 3, resultsDir = path.join(__dirname, '../results') } = options;
 
@@ -62,10 +38,17 @@ export async function runSearchScenario(options: any = {}) {
       const launchResult = await launchElectron({ configDirPath: benchmarkDir });
       electronApp = launchResult.electronApp;
 
+      const window = await electronApp.firstWindow();
+      // Raw CDP Runtime.evaluate, not page.evaluate() - Mailspring's own
+      // app/static/index.js stomps window.eval/global.eval for security,
+      // which breaks Playwright's page.evaluate() for some call shapes.
+      // See benchmarks/spikes/phase0-spike.ts for the full explanation.
+      const cdpSession = await window.context().newCDPSession(window);
+
       await sleep(2000);
 
       const startTime = Date.now();
-      await sendCDPCommand(launchResult.cdpConnection, 'Runtime.evaluate', {
+      await cdpSession.send('Runtime.evaluate', {
         expression: `
           (async () => {
             // Simulate search operation

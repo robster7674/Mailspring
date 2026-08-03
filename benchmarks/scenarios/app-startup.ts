@@ -10,30 +10,6 @@ async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function sendCDPCommand(conn: any, method: string, params: any = {}): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const id = conn.messageId++;
-    const message = JSON.stringify({ id, method, params });
-    const timeout = setTimeout(() => reject(new Error(`CDP timeout: ${method}`)), 5000);
-
-    let messageHandler: ((data: string) => void) | null = (data: string) => {
-      try {
-        const response = JSON.parse(data.toString());
-        if (response.id === id) {
-          clearTimeout(timeout);
-          conn.ws.removeListener('message', messageHandler!);
-          messageHandler = null;
-          if (response.error) reject(new Error(`CDP error: ${response.error.message}`));
-          else resolve(response.result);
-        }
-      } catch (e) {}
-    };
-
-    conn.ws.on('message', messageHandler);
-    conn.ws.send(message);
-  });
-}
-
 export interface AppStartupOptions {
   threadCount?: number;
   runs?: number;
@@ -90,11 +66,10 @@ export async function runAppStartupScenario(options: AppStartupOptions = {}) {
       console.log('  Waiting for inbox to populate...');
       await sleep(3000);
 
-      // Check if app is responsive by sending a CDP command
+      // Check if app is responsive - even if this fails, the app is likely
+      // still running, so don't gate the measurement on it.
       try {
-        await sendCDPCommand(launchResult.cdpConnection, 'Runtime.evaluate', {
-          expression: 'document.body.classList.length',
-        });
+        await electronApp.firstWindow({ timeout: 5000 });
       } catch (e) {
         // Even if this fails, the app is likely running
       }

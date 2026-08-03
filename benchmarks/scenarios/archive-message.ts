@@ -20,8 +20,9 @@ async function waitForThreadListPopulated(window: any, timeout = 30000) {
   const startTime = Date.now();
   while (Date.now() - startTime < timeout) {
     try {
-      // Look for thread items with data-item-id attribute (set in thread-list-props)
-      const threadItems = await window.$$('[data-item-id]');
+      // .thread-list .list-item matches playwright/helpers.ts's proven
+      // threads() locator, used by the existing e2e suite.
+      const threadItems = await window.$$('.thread-list .list-item');
       if (threadItems.length > 0) {
         return;
       }
@@ -101,7 +102,7 @@ export async function runArchiveScenario(options: ArchiveScenarioOptions = {}) {
 
       try {
         // Find first thread item
-        const threadItems = await window.$$('[data-item-id]');
+        const threadItems = await window.$$('.thread-list .list-item');
         if (threadItems.length === 0) {
           throw new Error('No thread items found after wait');
         }
@@ -113,12 +114,14 @@ export async function runArchiveScenario(options: ArchiveScenarioOptions = {}) {
         await threadItems[0].click();
         await window.waitForTimeout(500);
 
-        // Look for archive button/action
-        // In list view, might need to trigger via right-click menu or keyboard
+        // Click the Archive toolbar button rather than a keyboard shortcut -
+        // 'a'/'e' for archive are only bound by optional keymap templates
+        // (Gmail/Outlook/etc, see app/keymaps/templates/), not the default
+        // keymap (app/keymaps/base.json) this launcher uses. The toolbar
+        // button (ArchiveButton in thread-toolbar-buttons.tsx) works
+        // regardless of which keymap template is active.
         console.log('  Triggering archive action...');
-
-        // Try keyboard shortcut 'a' for archive
-        await window.keyboard.press('a');
+        await window.locator('[aria-label="Archive"]').click();
 
         // Wait for animation to complete (120ms base animation + safety buffer)
         await window.waitForTimeout(500);
