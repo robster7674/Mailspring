@@ -6,8 +6,10 @@ import { runSearchScenario } from './scenarios/search';
 import { runInitialSyncScenario } from './scenarios/initial-sync';
 import { runListRenderScenario } from './scenarios/list-render';
 import { runFolderNavigationScenario } from './scenarios/folder-navigation';
+import { runArchiveScenario } from './scenarios/archive-message';
 import { runMessageOpenScenario } from './scenarios/message-open';
 import { runComposerScenario } from './scenarios/composer';
+import { runSendMessageScenario } from './scenarios/send-message';
 import { runAttachmentUploadScenario } from './scenarios/attachment-upload';
 
 async function runAllScenarios() {
@@ -20,8 +22,10 @@ async function runAllScenarios() {
     { name: 'Initial Sync', fn: () => runInitialSyncScenario({ runs: 3 }) },
     { name: 'List Render', fn: () => runListRenderScenario({ runs: 3 }) },
     { name: 'Folder Navigation', fn: () => runFolderNavigationScenario({ runs: 3 }) },
+    { name: 'Archive Message', fn: () => runArchiveScenario({ runs: 3 }) },
     { name: 'Message Open', fn: () => runMessageOpenScenario({ runs: 3 }) },
     { name: 'Composer', fn: () => runComposerScenario({ runs: 3 }) },
+    { name: 'Send Message', fn: () => runSendMessageScenario({ runs: 3 }) },
     { name: 'Attachment Upload', fn: () => runAttachmentUploadScenario({ runs: 3 }) },
   ];
 

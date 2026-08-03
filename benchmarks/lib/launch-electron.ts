@@ -1,156 +1,71 @@
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import { spawn, ChildProcess } from 'child_process';
-import http from 'http';
-import WebSocket from 'ws';
+import { _electron as electron, ElectronApplication } from 'playwright';
 
 export interface LaunchOptions {
   configDirPath?: string;
-  headless?: boolean;
 }
 
-interface CDPConnection {
-  ws: WebSocket;
-  messageId: number;
-}
+// Linux-only workarounds for a namespace-restricted-container failure mode
+// found while building this harness (child process spawns, never
+// establishes its IPC connection - see git history of
+// benchmarks/spikes/phase0-spike.ts and .github/workflows/perf-trace.yaml).
+// Not needed/relevant on macOS or a real desktop; CI now runs on
+// macos-latest instead, where none of this is required.
+const linuxOnlyArgs =
+  process.platform === 'linux'
+    ? ['--no-sandbox', '--no-zygote', '--disable-gpu', '--disable-dev-shm-usage', '--disable-software-rasterizer']
+    : [];
 
-async function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function getDebuggerUrl(port: number = 9222, timeoutMs: number = 60000): Promise<string> {
-  const startTime = Date.now();
-  let lastError: any = null;
-
-  while (Date.now() - startTime < timeoutMs) {
-    try {
-      const response = await new Promise<string>((resolve, reject) => {
-        const req = http.get(`http://localhost:${port}/json/list`, (res) => {
-          let data = '';
-          res.on('data', chunk => data += chunk);
-          res.on('end', () => resolve(data));
-        });
-        req.on('error', (err: any) => reject(err));
-        req.setTimeout(2000);
-      });
-
-      const pages = JSON.parse(response);
-      if (pages.length > 0 && pages[0].webSocketDebuggerUrl) {
-        console.log(`✓ Debugger endpoint found after ${Date.now() - startTime}ms`);
-        return pages[0].webSocketDebuggerUrl;
-      }
-    } catch (err: any) {
-      lastError = err;
-      // Not ready yet
-    }
-
-    await sleep(500);
-  }
-
-  throw new Error(`Debugger endpoint not found after ${timeoutMs}ms. Last error: ${lastError?.message || 'unknown'}`);
-}
-
-async function connectCDP(debuggerUrl: string): Promise<CDPConnection> {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(debuggerUrl);
-
-    ws.on('open', () => {
-      console.log('✓ CDP connection established');
-      resolve({ ws, messageId: 1 });
-    });
-
-    ws.on('error', (err) => {
-      reject(new Error(`CDP connection failed: ${err.message}`));
-    });
-  });
-}
-
-async function sendCDPCommand(conn: CDPConnection, method: string, params: any = {}): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const id = conn.messageId++;
-    const message = JSON.stringify({ id, method, params });
-
-    const messageHandler = (data: string) => {
-      try {
-        const response = JSON.parse(data.toString());
-        if (response.id === id) {
-          conn.ws.off('message', messageHandler);
-          if (response.error) {
-            reject(new Error(`CDP error: ${response.error.message}`));
-          } else {
-            resolve(response.result);
-          }
-        }
-      } catch (e) {
-        // Ignore parse errors, wait for the actual response
-      }
-    };
-
-    conn.ws.on('message', messageHandler);
-    conn.ws.send(message);
-  });
-}
-
-export async function launchElectron(options: LaunchOptions = {}): Promise<{ electronApp: any; configDirPath: string; cdpConnection?: CDPConnection }> {
+export async function launchElectron(
+  options: LaunchOptions = {}
+): Promise<{ electronApp: ElectronApplication; configDirPath: string }> {
   const projectRoot = path.resolve(__dirname, '../../../');
   const appPath = path.join(projectRoot, 'app');
-  const configDirPath = options.configDirPath || path.join(os.homedir(), '.config', 'Mailspring-benchmark');
-  const cdpPort = 9222;
-
-  const electronBinary = path.join(projectRoot, 'node_modules/.bin/electron');
-
-  if (!fs.existsSync(electronBinary)) {
-    throw new Error(`Electron binary not found. Please run 'npm install'.`);
-  }
-
-  // Ensure config directory exists
+  const configDirPath = options.configDirPath || path.join(os.tmpdir(), 'mailspring-benchmark');
   fs.mkdirSync(configDirPath, { recursive: true });
 
-  console.log(`Launching Electron with CDP on port ${cdpPort}...`);
-
-  const electronProcess = spawn(electronBinary, [
-    appPath,
-    '--enable-logging',
-    '--dev',
-    `--remote-debugging-port=${cdpPort}`,
-  ], {
-    stdio: 'pipe',
-    env: { ...process.env, MAILSPRING_CONFIG_DIR: configDirPath },
+  const electronApp = await electron.launch({
+    // Without this, Playwright downloads/uses its own default Electron
+    // build instead of this repo's pinned node_modules/electron.
+    executablePath: require('electron') as unknown as string,
+    // main.js only reads --config-dir-path (yargs alias -c) as a CLI arg -
+    // there is no environment-variable equivalent. An earlier version of
+    // this launcher passed MAILSPRING_CONFIG_DIR as an env var instead,
+    // which main.js silently ignores; every scenario was actually running
+    // against the app's default profile, never the seeded database.
+    args: [appPath, '--enable-logging', '--dev', '--config-dir-path', configDirPath, ...linuxOnlyArgs],
+    env: { ...process.env } as any,
+    timeout: 60000,
   });
 
-  let processExited = false;
-  electronProcess.on('exit', (code) => {
-    processExited = true;
-    console.warn(`Electron process exited with code ${code}`);
-  });
+  // Playwright pipes the child's stdout/stderr (it needs to scan stderr for
+  // the "DevTools listening on ws://..." line to attach). --enable-logging
+  // makes this app chatty; if nothing drains these streams, the OS pipe
+  // buffer fills and the child blocks on write() - a silent, permanent hang
+  // that looks identical to the app never starting. phase0-spike.ts always
+  // drained both and never hit this; this launcher never did until now.
+  const proc = electronApp.process();
+  proc.stdout?.on('data', () => {});
+  proc.stderr?.on('data', () => {});
 
-  // Wait for debugger to become available
-  let debuggerUrl: string;
+  // Benchmark scenarios seed data straight into SQLite (fixtures/seed-account.ts),
+  // bypassing the sync engine, so mailsync.migrate() succeeding isn't actually
+  // required for what these scenarios measure. But if it fails for any reason
+  // (missing/broken mailsync binary), application.ts shows a *synchronous*
+  // dialog.showMessageBoxSync() waiting for a button click that will never
+  // come headlessly - hanging the whole run with no further output. Patch it
+  // to auto-dismiss, same as playwright/helpers.ts's proven launchApp() does.
   try {
-    debuggerUrl = await getDebuggerUrl(cdpPort);
-  } catch (err: any) {
-    electronProcess.kill();
-    throw new Error(`Failed to launch Electron: ${err?.message || String(err)}`);
+    await electronApp.evaluate(({ dialog }) => {
+      dialog.showMessageBoxSync = () => 0;
+      dialog.showMessageBox = () => Promise.resolve({ response: 0, checkboxChecked: false } as any);
+      dialog.showErrorBox = () => {};
+    });
+  } catch {
+    // Main process context not available yet - proceed without the patch.
   }
 
-  // Connect to CDP
-  let cdpConnection: CDPConnection;
-  try {
-    cdpConnection = await connectCDP(debuggerUrl);
-  } catch (err) {
-    electronProcess.kill();
-    throw err;
-  }
-
-  // Create a wrapper that mimics Playwright's API but uses raw CDP
-  const electronApp = {
-    close: async () => {
-      cdpConnection.ws.close();
-      electronProcess.kill();
-    },
-    getCDPSession: () => cdpConnection,
-  };
-
-  return { electronApp, configDirPath, cdpConnection };
+  return { electronApp, configDirPath };
 }
