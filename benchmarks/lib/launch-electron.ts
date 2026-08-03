@@ -40,6 +40,16 @@ export async function launchElectron(
     timeout: 60000,
   });
 
+  // Playwright pipes the child's stdout/stderr (it needs to scan stderr for
+  // the "DevTools listening on ws://..." line to attach). --enable-logging
+  // makes this app chatty; if nothing drains these streams, the OS pipe
+  // buffer fills and the child blocks on write() - a silent, permanent hang
+  // that looks identical to the app never starting. phase0-spike.ts always
+  // drained both and never hit this; this launcher never did until now.
+  const proc = electronApp.process();
+  proc.stdout?.on('data', () => {});
+  proc.stderr?.on('data', () => {});
+
   // Benchmark scenarios seed data straight into SQLite (fixtures/seed-account.ts),
   // bypassing the sync engine, so mailsync.migrate() succeeding isn't actually
   // required for what these scenarios measure. But if it fails for any reason
