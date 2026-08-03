@@ -30,8 +30,13 @@ export async function launchElectron(
     // Without this, Playwright downloads/uses its own default Electron
     // build instead of this repo's pinned node_modules/electron.
     executablePath: require('electron') as unknown as string,
-    args: [appPath, '--enable-logging', '--dev', ...linuxOnlyArgs],
-    env: { ...process.env, MAILSPRING_CONFIG_DIR: configDirPath } as any,
+    // main.js only reads --config-dir-path (yargs alias -c) as a CLI arg -
+    // there is no environment-variable equivalent. An earlier version of
+    // this launcher passed MAILSPRING_CONFIG_DIR as an env var instead,
+    // which main.js silently ignores; every scenario was actually running
+    // against the app's default profile, never the seeded database.
+    args: [appPath, '--enable-logging', '--dev', '--config-dir-path', configDirPath, ...linuxOnlyArgs],
+    env: { ...process.env } as any,
     timeout: 60000,
   });
 
