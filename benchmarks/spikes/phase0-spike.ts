@@ -159,18 +159,24 @@ async function main() {
   }
 
   console.log('Marking in renderer via window.performance...');
+  // Mailspring's own app/static/index.js stomps window.eval/global.eval for
+  // security ("Sorry, Mailspring does not support window.eval()..."),
+  // legitimately, since this renderer displays untrusted mail HTML - not
+  // something to weaken for our purposes. Playwright's page.evaluate()
+  // apparently routes through that eval() internally for some call shapes,
+  // which is what actually broke. A raw CDP Runtime.evaluate call, the same
+  // mechanism DevTools' own console uses, is a separate V8 debug-API path
+  // that never touches the page's JS-visible `eval` global, so it isn't
+  // affected by the override.
   try {
-    await window.evaluate(() => {
-      (window as any).performance.mark('spike-renderer-start');
-      let x = 0;
-      for (let i = 0; i < 1e6; i++) x += i;
-      (window as any).performance.mark('spike-renderer-end');
-      (window as any).performance.measure(
-        'spike-renderer-span',
-        'spike-renderer-start',
-        'spike-renderer-end'
-      );
-      return x;
+    const cdpSession = await window.context().newCDPSession(window);
+    await cdpSession.send('Runtime.evaluate', {
+      expression: `
+        window.performance.mark('spike-renderer-start');
+        (() => { let x = 0; for (let i = 0; i < 1e6; i++) x += i; })();
+        window.performance.mark('spike-renderer-end');
+        window.performance.measure('spike-renderer-span', 'spike-renderer-start', 'spike-renderer-end');
+      `,
     });
   } catch (err) {
     console.error('Renderer window.performance step failed:', err);
