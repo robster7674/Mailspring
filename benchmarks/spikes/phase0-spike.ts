@@ -133,8 +133,14 @@ async function main() {
   console.log('Enabling main-process perf_hooks -> trace_events bridge and marking...');
   try {
     await app.evaluate(async () => {
-      const { createTracing } = require('trace_events');
-      const { performance } = require('perf_hooks');
+      // Playwright's evaluate() runs this via CDP Runtime.evaluate directly
+      // in the main process's global scope, not inside the CommonJS module
+      // wrapper - so the module-local `require` (injected per-file by Node,
+      // not a true global) isn't in scope here. process.mainModule.require
+      // reaches back into the entry module's own require function instead.
+      const nodeRequire = (process as any).mainModule.require;
+      const { createTracing } = nodeRequire('trace_events');
+      const { performance } = nodeRequire('perf_hooks');
       const tracing = createTracing({ categories: ['node.perf.usertiming'] });
       tracing.enable();
       performance.mark('spike-main-start');
