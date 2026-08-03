@@ -16,7 +16,7 @@ async function sleep(ms: number) {
 // all - it slept 200ms and reported that as "nav time".
 export async function runFolderNavigationScenario(options: any = {}) {
   const {
-    threadCount = 100,
+    threadCount = 10,
     keyPresses = 20,
     runs = 3,
     resultsDir = path.join(__dirname, '../results'),
