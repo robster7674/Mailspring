@@ -52,9 +52,27 @@ jobs:
       # same as build-linux.yaml does for Linux. build.sh's macOS path is a
       # plain xcodebuild invocation that places the binary directly at
       # app/mailsync where the app expects it.
+      # First attempt at this step (see git history) failed after only ~8.5s -
+      # far too fast to have actually compiled libetpan/mailcore2/mailsync
+      # from scratch, and xcpretty's summary showed no compiler "error:" line
+      # at all, just "** BUILD FAILED **". That signature - fast failure, no
+      # compile errors reported - matches xcodebuild refusing to sign build
+      # products for `-destination 'generic/platform=macOS'` because this
+      # runner has no code-signing identity installed (build.sh's comment
+      # confirms xcodebuild normally codesigns the products for us). Forcing
+      # codesigning off via an xcconfig override (env-var-based, so it
+      # doesn't require touching the Mailspring-Sync submodule's build.sh)
+      # is the next thing to try - we don't need a signed binary for this CI
+      # run, just one that runs long enough to drive the tracing spike.
       - name: Build mailsync (C++ sync engine)
         run: |
           gem install xcpretty
+          cat > /tmp/disable-codesign.xcconfig <<'EOF'
+          CODE_SIGNING_ALLOWED = NO
+          CODE_SIGNING_REQUIRED = NO
+          CODE_SIGN_IDENTITY =
+          EOF
+          export XCODE_XCCONFIG_FILE=/tmp/disable-codesign.xcconfig
           bash mailsync/build.sh
 
       - name: Setup Node.js
