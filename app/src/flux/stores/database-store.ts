@@ -10,6 +10,9 @@ import { Model } from '../models/model';
 import MailspringStore from '../../global/mailspring-store';
 import * as Utils from '../models/utils';
 import Query from '../models/query';
+// Plain JS module, no .d.ts - matches the require() pattern used by
+// renderer-profiler-bootstrap.ts and main.js for the same file.
+const { getAdvancedProfiler } = require('../../browser/performance-profiler.js');
 
 const debug = createDebug('app:RxDB');
 const debugVerbose = createDebug('app:RxDB:all');
@@ -331,6 +334,23 @@ class DatabaseStore extends MailspringStore {
         results = stmt[fn](values) as any[];
         const msec = Date.now() - start;
         this._trackSlowQuery(query, msec);
+
+        // better-sqlite3 is synchronous, so this call just blocked this
+        // process's entire event loop for `msec` - in a renderer, that's
+        // the UI thread. Surface it through the same [PERF:*] channel as
+        // the event-loop-blocked alerts so the two can be correlated in
+        // one capture. Gated on profiler.enabled so non-profiling runs see
+        // no change from today's behavior.
+        if (msec > SLOW_QUERY_THRESHOLD_MS) {
+          const profiler = getAdvancedProfiler();
+          if (profiler.enabled) {
+            profiler._alert(
+              'warn',
+              `[PERF] Slow query blocked event loop for ${msec}ms: ${trimTo(query)}`
+            );
+          }
+        }
+
         if (debugVerbose.enabled) {
           const q = `(${msec}ms) ${query}`;
           debugVerbose(trimTo(q));

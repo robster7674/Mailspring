@@ -201,7 +201,10 @@ class _MessageStore extends MailspringStore {
 
   _setWindowTitle() {
     const title = 'Mailspring' + (this._thread ? ' · ' + this._thread.subject : '');
-    require('@electron/remote').getCurrentWindow().setTitle(title);
+    // Fire-and-forget over IPC rather than @electron/remote, which makes a
+    // synchronous main-process round trip on every thread focus change
+    // (ie. every arrow-key move through the inbox).
+    electron.ipcRenderer.send('call-window-method', 'setTitle', title);
   }
 
   _markAsRead() {

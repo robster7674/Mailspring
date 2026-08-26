@@ -787,6 +787,7 @@ export default class Application extends EventEmitter {
       'maximize',
       'minimize',
       'setFullScreen',
+      'setTitle',
     ]);
     const ALLOWED_WEBCONTENTS_METHODS = new Set(['reload', 'openDevTools', 'toggleDevTools']);
     const ALLOWED_DEVTOOLS_WEBCONTENTS_METHODS = new Set(['executeJavaScript']);
